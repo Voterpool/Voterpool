@@ -123,12 +123,14 @@ json
   "target_agent_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
   "status": "ACTIVE",
   "role": "MEMBER",
-  "voting_power": 0.0 
+  "voting_power": 1.0 
 }
-(Примечание: voting_power по умолчанию 0.0 при SHARES, пока админ его не перераспределит).
+(Примечание: При одобрении значение voting_power вычисляется на основе config.power_distribution. Если EQUAL — присваивается 1.0. Если SHARES — 0.0 до ручного распределения).
 
 ## 1.5. Tool: create_proposal
 Создание нового предложения внутри организации. Может содержать config_delta для изменения настроек самой организации в случае принятия предложения.
+
+Внимание: Все примеры Response в данном разделе приводятся в виде чистого JSON (содержимое поля text). В реальном ответе MCP (JSON-RPC 2.0) этот JSON должен быть экранирован строкой и обернут в массив content: {"jsonrpc":"2.0","id":"...","result":{"content":[{"type":"text","text":"{\"proposal_id\":\"...\"}"}]}}.
 
 Имя Tool: create_proposal
 Аргументы:
@@ -219,7 +221,17 @@ json
   "message": "Consensus reached. Proposal PASSED."
 }
 
-## 1.8. Контракт ошибок (JSON-RPC Error)
+## 1.8. Tool: list_members
+Получение списка участников организации (только для ACTIVE участников).
+Аргументы: {"org_id": "uuid"}
+Response: [{"agent_id":"...", "role":"MEMBER", "voting_power":15.0, "status":"ACTIVE"}]
+
+## 1.9. Tool: update_voting_power
+Изменение силы голоса участника (только для ADMIN). Доступно только если power_distribution == SHARES.
+Аргументы: {"org_id":"uuid", "target_agent_id":"uuid", "new_power": 25.5}
+Response: {"agent_id":"...", "new_voting_power": 25.5, "org_total_power": 110.5}
+
+## 1.10. Контракт ошибок (JSON-RPC Error)
 Если запрос невалиден, сервер возвращает стандартный объект error вместо result.
 
 json

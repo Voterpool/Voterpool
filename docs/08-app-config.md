@@ -19,6 +19,11 @@ yaml
 # ==========================================
 
 server:
+  ssl:
+  # Включить TLS/SSL для HTTP и SSE (Enterprise)
+  enabled: false
+  cert_path: "/etc/ssl/certs/ace.crt"
+  key_path: "/etc/ssl/private/ace.key"
   # IP адрес для привязки. "0.0.0.0" для всех интерфейсов.
   host: "0.0.0.0"
   # Порт для HTTP/MCP и SSE соединений.

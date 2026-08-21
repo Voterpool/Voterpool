@@ -192,9 +192,8 @@ int main(int argc, char** argv) {
         .setThreadNum(config.server.threads_num);
         
     // Регистрация Middleware (Авторизация)
-    drogon::app().registerPostHandlingAdvice([](const drogon::HttpRequestPtr &req, const drogon::HttpResponsePtr &resp) {
-        // Логика проверки Bearer токена
-    });
+   auto auth_middleware = std::make_shared<ace::AuthMiddleware>(config.auth, db);
+   drogon::app().registerPreHandlingAdvice(auth_middleware);
 
     // Регистрация маршрутов
     drogon::app().registerHandler("/mcp", 

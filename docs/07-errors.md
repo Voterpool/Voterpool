@@ -4,7 +4,7 @@ OpenSpec: Обработка ошибок (JSON-RPC Error Codes)
 
 # 1. Обработка ошибок 
 ## 1.1. Формат ответа при ошибке
-При возникновении любой ошибки (валидации, авторизации, бизнес-логики), сервер возвращает HTTP-статус 200 OK (или 400 Bad Request для ошибок парсинга) с телом JSON-RPC 2.0, содержащим объект error вместо result.
+При возникновении любой ошибки валидации или бизнес-логики сервер возвращает HTTP-статус 200 OK. В теле возвращается стандартный объект JSON-RPC 2.0 с полем error. Маппинг кастомных ошибок на HTTP статусы (4xx) не производится, чтобы LLM-агенты могли парсировать ошибки из единого контракта. Только ошибки парсинга JSON (Parse error) возвращают HTTP 400.
 
 Базовая структура:
 
@@ -41,7 +41,6 @@ Message
 
 -32001: Unauthorized
 Триггер: Отсутствует заголовок Authorization, токен не найден в БД (Native), или JWT невалиден (OIDC).
-HTTP Status: 401
 Пример data:
 json
 
@@ -50,21 +49,18 @@ json
 }
 -32002: Forbidden
 Триггер: Агент аутентифицирован, но не имеет прав на выполнение действия.
-HTTP Status: 403
 Примеры data:
 Не состоит в орге: {"reason": "Agent is not a member of this organization", "org_id": "..."}
 Статус PENDING: {"reason": "Membership is pending admin approval", "org_id": "..."}
 Нет прав админа: {"reason": "Admin privileges required to execute this action"}
 -32003: Conflict
 Триггер: Нарушение бизнес-логики состояния (попытка изменить неизменяемое состояние).
-HTTP Status: 409
 Примеры data:
 Двойное голосование: {"reason": "Agent has already voted on this proposal", "proposal_id": "...", "previous_decision": "YES"}
 Голосование закрыто: {"reason": "Proposal is already closed", "current_status": "PASSED"}
 Орга уже существует: {"reason": "Organization with this name already exists"}
 -32004: Not Found
 Триггер: Указанный org_id или proposal_id не существует в RocksDB.
-HTTP Status: 404
 Пример data:
 json
 
@@ -75,14 +71,12 @@ json
 }
 -32005: Business Rule Violation
 Триггер: Запрос логически неверен в контексте текущих настроек организации.
-HTTP Status: 422 Unprocessable Entity
 Примеры data:
 Неверная сила голоса: {"reason": "Sum of voting powers cannot exceed 100% in SHARES model", "attempted_sum": 105.0}
 Неверный config_delta: {"reason": "Cannot change power_distribution model while active proposals exist"}
 Истекшее время: {"reason": "Voting duration must be greater than 0 seconds"}
 -32006: Rate Limit Exceeded
 Триггер: Агент превысил лимит запросов (RPS) для предотвращения спама/DoS (Enterprise защита).
-HTTP Status: 429 Too Many Requests
 Пример data:
 json
 
