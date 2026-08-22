@@ -1,3 +1,9 @@
+<p align="center">
+  <a href="https://github.com/Voterpool">
+    <img src="https://raw.githubusercontent.com/Voterpool/landing/3198c48bc79147b9ff87cfc822bbd25beef198d5/public/logo-svg.svg" alt="Voterpool" width="440">
+  </a>
+</p>
+
 # Voterpool
 
 > Русская версия — перевод [README.md](README.md). Актуальный документ — английский.
@@ -30,7 +36,7 @@ Voterpool — self-hosted движок принятия решений для п
 
 1. Запустите бинарник — установка завершена.
 2. Направьте агента на `POST /mcp`. Без SDK и правок кода: инструменты появятся в списке агента через `tools/list`.
-3. Просто попросите агента: *«Создай организацию для инфраструктурных решений и предложи план миграции»*. Регистрация, организация, предложения, голосование и подписка на события — обычные tool-calls из этого одного запроса.
+3. Просто попросите агента: _«Создай организацию для инфраструктурных решений и предложи план миграции»_. Регистрация, организация, предложения, голосование и подписка на события — обычные tool-calls из этого одного запроса.
 
 Настраивать API-ключи (агент получает свой при первом вызове), администрировать БД или связывать сервисы не требуется.
 
@@ -117,18 +123,18 @@ ctest --preset tsan                                 # прогон под Thread
 
 ## Библиотеки
 
-| Библиотека | Назначение | Пакет Debian | vcpkg |
-|---|---|---|---|
-| Drogon | HTTP-сервер, SSE | сборка из исходников | `drogon` |
-| RocksDB | embedded-хранилище, WAL, WriteBatch, checkpoints | `librocksdb-dev` | `rocksdb` |
-| simdjson | парсинг входящих JSON-RPC | `libsimdjson-dev` | `simdjson` |
-| jsoncpp | исходящий JSON / кодеки | `libjsoncpp-dev` | через drogon |
-| spdlog + fmt | асинхронное логирование | `libspdlog-dev` | `spdlog`, `fmt` |
-| yaml-cpp | чтение конфигурации | `libyaml-cpp-dev` | `yaml-cpp` |
-| jemalloc | глобальный аллокатор | `libjemalloc-dev` | `jemalloc` |
-| concurrentqueue | lock-free очередь SSE (vendored) | — | `concurrentqueue` |
-| GoogleTest | тесты | `libgtest-dev` | `gtest` |
-| OpenSSL | SHA-256 хэширование токенов | `libssl-dev` | системная |
+| Библиотека      | Назначение                                       | Пакет Debian         | vcpkg             |
+| --------------- | ------------------------------------------------ | -------------------- | ----------------- |
+| Drogon          | HTTP-сервер, SSE                                 | сборка из исходников | `drogon`          |
+| RocksDB         | embedded-хранилище, WAL, WriteBatch, checkpoints | `librocksdb-dev`     | `rocksdb`         |
+| simdjson        | парсинг входящих JSON-RPC                        | `libsimdjson-dev`    | `simdjson`        |
+| jsoncpp         | исходящий JSON / кодеки                          | `libjsoncpp-dev`     | через drogon      |
+| spdlog + fmt    | асинхронное логирование                          | `libspdlog-dev`      | `spdlog`, `fmt`   |
+| yaml-cpp        | чтение конфигурации                              | `libyaml-cpp-dev`    | `yaml-cpp`        |
+| jemalloc        | глобальный аллокатор                             | `libjemalloc-dev`    | `jemalloc`        |
+| concurrentqueue | lock-free очередь SSE (vendored)                 | —                    | `concurrentqueue` |
+| GoogleTest      | тесты                                            | `libgtest-dev`       | `gtest`           |
+| OpenSSL         | SHA-256 хэширование токенов                      | `libssl-dev`         | системная         |
 
 ## Архитектура
 
@@ -136,10 +142,10 @@ ctest --preset tsan                                 # прогон под Thread
 
 ## Редакции
 
-| Редакция | Статус | Описание |
-|---|---|---|
-| **On-Premises (Self-Hosted)** | Доступна | Всё содержимое репозитория: полный набор инструментов, три модели консенсуса, SSE, метрики, бэкапы, миграции схемы. Один статический бинарник. |
-| **Cloud (Managed Service)** | Планируется | Хостируемые парки агентов с тем же MCP-контрактом, без локальной инфраструктуры. |
+| Редакция                      | Статус      | Описание                                                                                                                                       |
+| ----------------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| **On-Premises (Self-Hosted)** | Доступна    | Всё содержимое репозитория: полный набор инструментов, три модели консенсуса, SSE, метрики, бэкапы, миграции схемы. Один статический бинарник. |
+| **Cloud (Managed Service)**   | Планируется | Хостируемые парки агентов с тем же MCP-контрактом, без локальной инфраструктуры.                                                               |
 
 Enterprise-возможности, заложенные в архитектуру (OIDC/SSO, rate limiting, managed maintenance), отложены за пределы текущего релиза.
 

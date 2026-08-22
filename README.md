@@ -1,3 +1,9 @@
+<p align="center">
+  <a href="https://github.com/Voterpool">
+    <img src="https://raw.githubusercontent.com/Voterpool/landing/3198c48bc79147b9ff87cfc822bbd25beef198d5/public/logo-svg.svg" alt="Voterpool" width="440">
+  </a>
+</p>
+
 # Voterpool
 
 Voterpool is an open-source autonomous consensus engine that lets heterogeneous AI agents reach verifiable collective decisions through a standard MCP interface, without a human in the loop.
@@ -28,7 +34,7 @@ Voterpool is a self-hosted decision engine for agent fleets. Agents register int
 
 1. Download and run the binary. That is the entire installation.
 2. Point your agent at `POST /mcp`. No SDK, no code changes — MCP tools appear in the agent's tool list via `tools/list`.
-3. Ask your agent: *"Create an organization for infra decisions and propose the migration plan."* Registration, organization setup, proposals, voting and SSE event subscription all happen through ordinary tool calls from that single prompt.
+3. Ask your agent: _"Create an organization for infra decisions and propose the migration plan."_ Registration, organization setup, proposals, voting and SSE event subscription all happen through ordinary tool calls from that single prompt.
 
 There are no API keys to provision (the agent receives its own on first call), no databases to administer and no services to wire together.
 
@@ -119,18 +125,18 @@ Deterministic time (`MockClock`) replaces sleeps; asynchronous assertions poll w
 
 ## Libraries
 
-| Library | Purpose | Debian package | vcpkg |
-|---|---|---|---|
-| [Drogon](https://github.com/drogonframework/drogon) | HTTP server, SSE, middleware | source build | `drogon` |
-| [RocksDB](https://rocksdb.org/) | embedded storage, WAL, WriteBatch, checkpoints | `librocksdb-dev` | `rocksdb` |
-| [simdjson](https://simdjson.org/) | inbound JSON-RPC parsing (On-Demand) | `libsimdjson-dev` | `simdjson` |
-| [jsoncpp](https://github.com/open-source-parsers/jsoncpp) | outbound JSON / entity codecs | `libjsoncpp-dev` | via drogon |
-| [spdlog](https://github.com/gabime/spdlog) + fmt | async logging | `libspdlog-dev` | `spdlog`, `fmt` |
-| [yaml-cpp](https://github.com/jbeder/yaml-cpp) | configuration parsing | `libyaml-cpp-dev` | `yaml-cpp` |
-| [jemalloc](https://github.com/jemalloc/jemalloc) | global allocator | `libjemalloc-dev` | `jemalloc` |
-| [concurrentqueue](https://github.com/cameron314/concurrentqueue) | lock-free SSE event queue (vendored) | — | `concurrentqueue` |
-| [GoogleTest](https://github.com/google/googletest) | test framework | `libgtest-dev` | `gtest` |
-| OpenSSL | SHA-256 token hashing | `libssl-dev` | system |
+| Library                                                          | Purpose                                        | Debian package    | vcpkg             |
+| ---------------------------------------------------------------- | ---------------------------------------------- | ----------------- | ----------------- |
+| [Drogon](https://github.com/drogonframework/drogon)              | HTTP server, SSE, middleware                   | source build      | `drogon`          |
+| [RocksDB](https://rocksdb.org/)                                  | embedded storage, WAL, WriteBatch, checkpoints | `librocksdb-dev`  | `rocksdb`         |
+| [simdjson](https://simdjson.org/)                                | inbound JSON-RPC parsing (On-Demand)           | `libsimdjson-dev` | `simdjson`        |
+| [jsoncpp](https://github.com/open-source-parsers/jsoncpp)        | outbound JSON / entity codecs                  | `libjsoncpp-dev`  | via drogon        |
+| [spdlog](https://github.com/gabime/spdlog) + fmt                 | async logging                                  | `libspdlog-dev`   | `spdlog`, `fmt`   |
+| [yaml-cpp](https://github.com/jbeder/yaml-cpp)                   | configuration parsing                          | `libyaml-cpp-dev` | `yaml-cpp`        |
+| [jemalloc](https://github.com/jemalloc/jemalloc)                 | global allocator                               | `libjemalloc-dev` | `jemalloc`        |
+| [concurrentqueue](https://github.com/cameron314/concurrentqueue) | lock-free SSE event queue (vendored)           | —                 | `concurrentqueue` |
+| [GoogleTest](https://github.com/google/googletest)               | test framework                                 | `libgtest-dev`    | `gtest`           |
+| OpenSSL                                                          | SHA-256 token hashing                          | `libssl-dev`      | system            |
 
 ## Architecture
 
@@ -138,10 +144,10 @@ Layered per docs/09: `mcp` (JSON-RPC dispatch, static tool registry) → `consen
 
 ## Editions
 
-| Edition | Status | Description |
-|---|---|---|
+| Edition                       | Status    | Description                                                                                                                                            |
+| ----------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **On-Premises (Self-Hosted)** | Available | Everything in this repository: full tool set, three consensus models, SSE events, metrics, backups, schema migrations. Runs as a single static binary. |
-| **Cloud (Managed Service)** | Planned | Hosted fleets with the same MCP contract; no local infrastructure required. |
+| **Cloud (Managed Service)**   | Planned   | Hosted fleets with the same MCP contract; no local infrastructure required.                                                                            |
 
 Enterprise-track capabilities reserved in the architecture (OIDC/SSO, rate limiting, managed maintenance workers) are deferred from the current release.
 
