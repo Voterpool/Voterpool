@@ -1,14 +1,14 @@
-# Proposal: Реализация приложения Voterpool (MVP)
+# Proposal: Реализация приложения Voterpool (редакция On-Premises (Self-Hosted))
 
 ## Why
 
-Документация в `docs/00..13` полностью описывает автономный Headless-движок коллективных решений гетерогенных ИИ-агентов (Voterpool): доменную модель, математику консенсуса, MCP-контракты, схему хранения и эксплуатационные требования. Кода проекта ещё нет (репозиторий содержит только документацию и каркас OpenSpec). Нужно реализовать приложение по этой документации, получив работающий нативный бинарник с полным MVP-функционалом.
+Документация в `docs/00..13` полностью описывает автономный Headless-движок коллективных решений гетерогенных ИИ-агентов (Voterpool): доменную модель, математику консенсуса, MCP-контракты, схему хранения и эксплуатационные требования. Кода проекта ещё нет (репозиторий содержит только документацию и каркас OpenSpec). Нужно реализовать приложение по этой документации, получив работающий нативный бинарник с полным функционалом редакции On-Premises (Self-Hosted).
 
 ## What Changes
 
 - Создаётся C++20 проект Voterpool с нуля: CMake (≥3.20) + vcpkg manifest mode; стек строго по docs/00 §1 — Drogon (HTTP/SSE-транспорт), simdjson (парсинг входящих запросов), RocksDB (embedded-хранилище, WAL, синхронная запись), spdlog (async-логирование), jemalloc, yaml-cpp; результат сборки — статически слинкованный ELF-бинарник (NFR-4).
 - Реализуется протокольное ядро MCP 2026-07-28 (stateless, без хендшейка и сессий): POST /mcp, обязательные заголовки, режим A tools/call + deprecated режим B (method=<tool>), server/discover, кэшируемый tools/list (ttlMs/cacheScope, детерминированный порядок), единый контракт ошибок JSON-RPC (docs/07).
-- Реализуются все MVP MCP Tools (16 инструментов): register_agent, create_organization, join_organization, create_proposal (включая ACTION: APPROVE_MEMBER | UPDATE_ORG_INFO и config_delta), get_proposals, cast_vote, list_members, update_voting_power, update_agent, search_organizations, get_organization, get_agent, leave_organization, transfer_admin, dissolve_organization.
+- Реализуются все MCP Tools редакции On-Premises (Self-Hosted) (15 инструментов): register_agent, create_organization, join_organization, create_proposal (включая ACTION: APPROVE_MEMBER | UPDATE_ORG_INFO и config_delta), get_proposals, cast_vote, list_members, update_voting_power, update_agent, search_organizations, get_organization, get_agent, leave_organization, transfer_admin, dissolve_organization.
 - Реализуются все 3 модели консенсуса (MAJORITY, QUORUM_PERCENTAGE, CONSENT) по точной математике docs/02: замороженная T, Early-Exit оптимизация, наборы вариантов голоса per-model, распределение сил EQUAL/SHARES.
 - Реализуется слой персистентности RocksDB по docs/01: 9 Column Families, конкатенативные ключи, вторичные индексы (pending, active_proposals, proposal_lookup, org_feed, tag, org_name, join_limit, category), атомарность через WriteBatch, контроль конкурентности через per-proposal mutex registry, аудит cf_audit_log.
 - Реализуется версионирование схемы БД и автоматические миграции (meta:schema_version, идемпотентные шаги, gate «данные новее бинарника» → exit(1)) и бэкапы через RocksDB Checkpoints (CLI `./voterpool checkpoint`).
@@ -44,13 +44,13 @@
 
 - **Код**: создаются новые директории проекта по docs/09: `CMakeLists.txt`, `vcpkg.json`, `config/default.yaml`, `include/{core,domain,storage,consensus,server,mcp}/`, `src/`, `tests/{common,unit,integration,e2e}/`.
 - **API**: новый публичный контракт POST /mcp (JSON-RPC 2.0), GET /mcp/events (SSE), GET /health, GET /metrics; CLI-интерфейс бинарника `./voterpool [--config|--port|--db-path|--log-level|--daemon]` и `./voterpool checkpoint`.
-- **Зависимости** (vcpkg.json): drogon, rocksdb, simdjson, spdlog, jemalloc, yaml-cpp, gtest; jwt-cpp исключён из MVP (docs/09 §1.2 допускает).
+- **Зависимости** (vcpkg.json): drogon, rocksdb, simdjson, spdlog, jemalloc, yaml-cpp, gtest; jwt-cpp исключён из состава редакции On-Premises (Self-Hosted) (docs/09 §1.2 допускает).
 - **Хранилище**: локальная директория RocksDB (по умолчанию ./data/voterpool_db); Shared-Nothing, внешние сервисы не требуются.
 - **Сборка/CI**: требуется vcpkg (VCPKG_ROOT), CMake ≥3.20, компилятор с поддержкой C++20 (корутины); тесты — ctest при VOTERPOOL_BUILD_TESTS=ON.
 
 ## Допущения
 
-1. Объём реализации ограничен MVP-перечнем docs/00 §6; Enterprise-части отложены, но архитектурные интерфейсы (IAuthProvider, фабрика консенсус-моделей, CF-схема) резервируют место под них.
+1. Объём реализации ограничен перечнем редакции On-Premises (Self-Hosted) из docs/00 §6; Enterprise-части отложены, но архитектурные интерфейсы (IAuthProvider, фабрика консенсус-моделей, CF-схема) резервируют место под них.
 2. Все артефакты OpenSpec пишутся на русском языке (обязательное требование docs/00).
-3. jwt-cpp не включается в зависимости MVP-native (разрешено docs/09 §1.2); OIDCAuthProvider не реализуется.
+3. jwt-cpp не включается в зависимости Native-режим On-Premises-редакции (разрешено docs/09 §1.2); OIDCAuthProvider не реализуется.
 4. Целевая платформа — Linux x86_64/arm64 (NFR-4); проверка сборки выполняется на доступной архитектуре CI/локальной машины.

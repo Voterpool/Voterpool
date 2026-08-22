@@ -1,0 +1,14 @@
+{
+  "name": "voterpool",
+  "version-string": "1.0.0",
+  "dependencies": [
+    "drogon",
+    "rocksdb",
+    "simdjson",
+    "spdlog",
+    "fmt",
+    "yaml-cpp",
+    "gtest",
+    "concurrentqueue"
+  ]
+}

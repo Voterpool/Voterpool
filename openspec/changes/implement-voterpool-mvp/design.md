@@ -1,4 +1,4 @@
-# Design: Реализация Voterpool (MVP)
+# Design: Реализация Voterpool (редакция On-Premises (Self-Hosted))
 
 ## Context
 
@@ -17,8 +17,8 @@
 
 **Non-Goals:**
 
-- Enterprise-части docs/00 §6: OIDC/jwt-cpp, rate limiting (-32006 не генерируется в MVP), RocksDB Maintenance Worker, шардирование, облачные бэкапы, Secondary Instance.
-- TLS-терминация (server.ssl зарезервирована; в MVP терминирует прокси).
+- Enterprise-части docs/00 §6: OIDC/jwt-cpp, rate limiting (-32006 не генерируется в On-Premises (Self-Hosted)), RocksDB Maintenance Worker, шардирование, облачные бэкапы, Secondary Instance.
+- TLS-терминация (server.ssl зарезервирована; в On-Premises (Self-Hosted) терминирует прокси).
 - HTTP/2-обязательность: достаточно HTTP/1.1 Drogon (SSE работает поверх него); включение h2c остаётся конфигурационной опцией без отдельных требований.
 - Бенчмарк-таргет NFR-1 как CI-гейт (отдельный `voterpool_bench`, нестабилен в CI — docs/10 §3.3).
 
@@ -50,7 +50,7 @@
 
 ### D7. SSE: SseHub + moodycamel::ConcurrentQueue
 
-SseHub держит `unordered_map<org_id, vector<subscriber>>` под shared_mutex; подписка all-orgs вычисляется из cf_agent_orgs при connect. Очередь событий — moodycamel::ConcurrentQueue<SseEvent> (добавить в vcpkg.json рядом с gtest; альтернатива boost::lockfree::queue допускает фиксированную ёмкость хуже). Диспетчер: батчи ≤1000, запись через `queueInLoop` цикла Drogon; проверка alive-состояния стрима перед записью; heartbeat отдельным таймером jthread. Доставка «только ACTIVE организаций» фиксируется на момент подключения; изменения членства применяются при следующем переподключении (принято как допустимое упрощение MVP — соединение короткоживущее относительно жизни членства).
+SseHub держит `unordered_map<org_id, vector<subscriber>>` под shared_mutex; подписка all-orgs вычисляется из cf_agent_orgs при connect. Очередь событий — moodycamel::ConcurrentQueue<SseEvent> (добавить в vcpkg.json рядом с gtest; альтернатива boost::lockfree::queue допускает фиксированную ёмкость хуже). Диспетчер: батчи ≤1000, запись через `queueInLoop` цикла Drogon; проверка alive-состояния стрима перед записью; heartbeat отдельным таймером jthread. Доставка «только ACTIVE организаций» фиксируется на момент подключения; изменения членства применяются при следующем переподключении (принято как допустимое упрощение On-Premises (Self-Hosted) — соединение короткоживущее относительно жизни членства).
 
 ### D8. Воркеры и lifecycle
 
@@ -83,7 +83,7 @@ core/Metrics.h: Counter/Gauge/Histogram на std::atomic (relaxed), экспоз
 - [Гонка SSE-стримов при закрытии соединения во время записи диспетчера] → единый владелец записи (цикл Drogon через queueInLoop), alive-check перед отправкой, счётчик sse_write_failures для мониторинга.
 - [Миграции при живых индексах могут оставить рассинхрон при ошибке] → правило docs/12 §5: переиндексация тем же WriteBatch; идемпотентные шаги; integration-тест test_migration с crash-сценарием.
 - [Деградированный режим может «залечь» незамеченным] → voterpool_db_healthy=0 — page-уровень алерта (docs/11 §5); fail-fast /health 503 убивает pod оркестратором.
-- [Объём MVP велик — риск расползания scope] → задачи tasks.md срезаны по MVP-перечню docs/00 §6; любые Enterprise-идеи фиксируются в Non-Goals, а не в задачах.
+- [Объём On-Premises (Self-Hosted) велик — риск расползания scope] → задачи tasks.md срезаны по On-Premises (Self-Hosted)-перечню docs/00 §6; любые Enterprise-идеи фиксируются в Non-Goals, а не в задачах.
 
 ## Migration Plan
 

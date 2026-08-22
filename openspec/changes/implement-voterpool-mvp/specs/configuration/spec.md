@@ -6,7 +6,7 @@
 
 ### Requirement: Загрузка и валидация config.yaml
 
-При старте движок ДОЛЖЕН читать конфигурационный файл YAML (по умолчанию ./config.yaml, путь — флагом --config). Отсутствие файла или невалидные значения (например, отрицательный порт, voting-секции неверных типов) ДОЛЖНЫ завершать процесс немедленно с кодом 1 и выводом ошибки в stderr. Структура секций ДОЛЖНА соответствовать docs/08 §1.2: server (ssl, host, port, threads_num, max_request_body_size, request_timeout_sec), storage (path, max_open_files, write_buffer_size, max_write_buffer_number, log_level), auth (mode NATIVE|OIDC + oidc), sse (heartbeat_interval_sec), metrics (enabled, path), mcp (protocol_version, tools_list_cache_ttl_ms), logging (level, format, async, async_queue_size, log_file), rate_limit (неактивен в MVP).
+При старте движок ДОЛЖЕН читать конфигурационный файл YAML (по умолчанию ./config.yaml, путь — флагом --config). Отсутствие файла или невалидные значения (например, отрицательный порт, voting-секции неверных типов) ДОЛЖНЫ завершать процесс немедленно с кодом 1 и выводом ошибки в stderr. Структура секций ДОЛЖНА соответствовать docs/08 §1.2: server (ssl, host, port, threads_num, max_request_body_size, request_timeout_sec), storage (path, max_open_files, write_buffer_size, max_write_buffer_number, log_level), auth (mode NATIVE|OIDC + oidc), sse (heartbeat_interval_sec), metrics (enabled, path), mcp (protocol_version, tools_list_cache_ttl_ms), logging (level, format, async, async_queue_size, log_file), rate_limit (неактивен в On-Premises (Self-Hosted)).
 
 #### Scenario: Валидный конфиг поднимает сервер
 

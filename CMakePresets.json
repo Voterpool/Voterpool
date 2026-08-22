@@ -1,0 +1,46 @@
+{
+  "version": 3,
+  "configurePresets": [
+    {
+      "name": "release",
+      "displayName": "Release",
+      "binaryDir": "build",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "VOTERPOOL_BUILD_TESTS": "ON",
+        "CMAKE_GENERATOR": "Ninja"
+      }
+    },
+    {
+      "name": "debug",
+      "inherits": "release",
+      "displayName": "Debug",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+    },
+    {
+      "name": "asan",
+      "inherits": "debug",
+      "displayName": "AddressSanitizer",
+      "cacheVariables": {
+        "VOTERPOOL_JEMALLOC": "OFF",
+        "CMAKE_CXX_FLAGS": "-fsanitize=address -fno-omit-frame-pointer -g",
+        "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=address"
+      }
+    },
+    {
+      "name": "tsan",
+      "inherits": "debug",
+      "displayName": "ThreadSanitizer",
+      "cacheVariables": {
+        "VOTERPOOL_JEMALLOC": "OFF",
+        "CMAKE_CXX_FLAGS": "-fsanitize=thread -fno-omit-frame-pointer -g",
+        "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=thread"
+      }
+    }
+  ],
+  "testPresets": [
+    { "name": "release", "configurePreset": "release", "output": { "outputOnFailure": true } },
+    { "name": "asan", "configurePreset": "asan", "output": { "outputOnFailure": true } },
+    { "name": "tsan", "configurePreset": "tsan", "output": { "outputOnFailure": true } }
+  ]
+}

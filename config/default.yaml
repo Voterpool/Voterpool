@@ -1,0 +1,51 @@
+# ==========================================
+# Voterpool Configuration
+# ==========================================
+
+server:
+  ssl:
+    enabled: false
+    cert_path: "/etc/ssl/certs/voterpool.crt"
+    key_path: "/etc/ssl/private/voterpool.key"
+  host: "0.0.0.0"
+  port: 8080
+  threads_num: 0
+  max_request_body_size: 10485760
+  request_timeout_sec: 30
+
+storage:
+  path: "./data/voterpool_db"
+  max_open_files: -1
+  write_buffer_size: 67108864
+  max_write_buffer_number: 3
+  log_level: "WARN"
+
+auth:
+  mode: "NATIVE"
+  oidc:
+    jwks_url: "https://keycloak.corp.com/realms/internal/protocol/openid-connect/certs"
+    issuer: "https://keycloak.corp.com/realms/internal"
+    cache_ttl_sec: 300
+
+sse:
+  heartbeat_interval_sec: 15
+
+metrics:
+  enabled: true
+  path: "/metrics"
+
+mcp:
+  protocol_version: "2026-07-28"
+  tools_list_cache_ttl_ms: 300000
+
+logging:
+  level: "info"
+  format: "[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] [%t] %v"
+  async: true
+  async_queue_size: 8192
+  log_file: ""
+
+rate_limit:
+  enabled: false
+  rps_per_agent: 50
+  rps_per_org: 500
