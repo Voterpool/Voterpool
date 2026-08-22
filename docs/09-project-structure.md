@@ -8,7 +8,7 @@ OpenSpec: Структура проекта (CMake / C++)
 
 text
 
-ace-engine/
+voterpool/
 ├── CMakeLists.txt              # Корневой файл сборки CMake
 ├── vcpkg.json                  # Манифест зависимостей vcpkg
 ├── config/
@@ -17,6 +17,7 @@ ace-engine/
 │   ├── core/                   # Базовые примитивы (логгер, конфиг, аллокаторы)
 │   │   ├── Config.h
 │   │   ├── Logger.h
+│   │   ├── Metrics.h           # Реестр метрик Prometheus (docs/11)
 │   │   └── Memory.h            # Инициализация jemalloc
 │   ├── domain/                 # Доменные сущности (POCO/DTO)
 │   │   ├── Agent.h
@@ -27,6 +28,7 @@ ace-engine/
 │   ├── storage/                # Слой персистентности (Обертки над RocksDB)
 │   │   ├── Database.h         # Интерфейс IDatabase
 │   │   ├── RocksDBWrapper.h
+│   │   ├── SchemaVersion.h    # VOTERPOOL_SCHEMA_VERSION + раннер миграций (docs/12)
 │   │   └── repositories/      # Repository Pattern
 │   │       ├── AgentRepository.h
 │   │       ├── OrgRepository.h
@@ -37,7 +39,8 @@ ace-engine/
 │   │   ├── MajorityModel.h
 │   │   ├── QuorumModel.h
 │   │   ├── ConsentModel.h
-│   │   └── ConsensusEngine.h  # Оркестратор
+│   │   ├── ConsensusEngine.h  # Оркестратор
+│   └── ProposalLock.h     # Per-proposal mutex registry (контроль конкурентности, docs/01 §5)
 │   ├── server/                 # Сетевой слой (Drogon)
 │   │   ├── AuthMiddleware.h   # Проверка токенов (Native/OIDC)
 │   │   ├── SseHub.h           # Менеджер SSE-соединений
@@ -60,10 +63,35 @@ ace-engine/
 │   ├── server/
 │   ├── mcp/
 │   └── main.cpp                # Точка входа, инициализация подсистем
-└── tests/                      # Unit & Integration тесты (GoogleTest)
+└── tests/                      # Тесты (GoogleTest) — см. docs/10
     ├── CMakeLists.txt
-    ├── test_consensus.cpp
-    └── test_storage.cpp
+    ├── common/                 # Помощники: TempDbFixture, MockClock,
+    │   │                       #   TestServer, SseClient, RandomPort
+    ├── unit/                   # Чистая логика без I/O
+    │   ├── test_consensus_majority.cpp
+    │   ├── test_consensus_quorum.cpp
+    │   ├── test_consensus_consent.cpp
+    │   ├── test_jsonrpc_errors.cpp
+    │   ├── test_params_validation.cpp
+    │   └── test_keys.cpp
+    ├── integration/            # Реальный RocksDB во временной директории
+    │   ├── test_storage_repos.cpp
+    │   ├── test_cast_vote_tx.cpp
+    │   ├── test_concurrency.cpp
+    │   ├── test_actions.cpp
+    │   ├── test_discovery_index.cpp
+    │   ├── test_ttl_worker.cpp
+    │   ├── test_recovery.cpp
+    │   ├── test_auth_native.cpp
+    │   ├── test_migration.cpp
+    │   ├── test_checkpoint_restore.cpp
+    │   └── test_degraded_mode.cpp
+    └── e2e/                    # Реальный сервер на localhost + HTTP/SSE
+        ├── test_protocol.cpp
+        ├── test_mcp_flow.cpp
+        ├── test_sse_events.cpp
+        ├── test_errors_http.cpp
+        └── test_shutdown.cpp
 
 ## 1.2. Управление зависимостями (vcpkg.json)
 Все внешние библиотеки управляются через манифест vcpkg.json (Manifest Mode). Это гарантирует, что любой разработчик или CI/CD соберет проект с одинаковыми версиями зависимостей.
@@ -71,7 +99,7 @@ ace-engine/
 json
 
 {
-  "name": "ace-engine",
+  "name": "voterpool",
   "version-string": "1.0.0",
   "dependencies": [
     "drogon",
@@ -80,6 +108,7 @@ json
     "spdlog",
     "jemalloc",
     "yaml-cpp",
+    "gtest",
     {
       "name": "jwt-cpp",
       "features": ["openssl"]
@@ -88,13 +117,15 @@ json
 }
 Сборка RocksDB с vcpkg по умолчанию компилирует его как статическую библиотеку.
 
+Зависимость jwt-cpp требуется только для Enterprise OIDC-режима (отложен, docs/03 §1.1). В MVP-native её можно исключить из vcpkg.json; интерфейс IAuthProvider (docs/03) резервирует место под OIDCAuthProvider без обязательной линковки jwt-cpp.
+
 ## 1.3. Конфигурация CMake (CMakeLists.txt)
 Корневой CMakeLists.txt настроен на production-сборку: статическая линковка runtime-библиотек C/C++ и интеграция jemalloc.
 
 cmake
 
 cmake_minimum_required(VERSION 3.20)
-project(ace-engine CXX)
+project(voterpool CXX)
 
 # Включение манифеста vcpkg
 if(DEFINED ENV{VCPKG_ROOT})
@@ -106,7 +137,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 # Опции сборки
-option(ACE_BUILD_TESTS "Build unit tests" OFF)
+option(VOTERPOOL_BUILD_TESTS "Build unit tests" OFF)
 
 # Поиск пакетов
 find_package(Drogon CONFIG REQUIRED)
@@ -120,10 +151,10 @@ find_package(yaml-cpp CONFIG REQUIRED)
 file(GLOB_RECURSE SOURCES "src/*.cpp")
 
 # Целевой бинарник
-add_executable(ace-engine ${SOURCES})
+add_executable(voterpool ${SOURCES})
 
 # Линковка библиотек
-target_link_libraries(ace-engine PRIVATE
+target_link_libraries(voterpool PRIVATE
     Drogon::Drogon
     RocksDB::rocksdb
     simdjson::simdjson
@@ -134,23 +165,24 @@ target_link_libraries(ace-engine PRIVATE
 
 # Включение статической линковки runtime (для автономного бинарника)
 if(MSVC)
-    set_property(TARGET ace-engine PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    set_property(TARGET voterpool PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 else()
-    target_link_options(ace-engine PRIVATE -static-libstdc++ -static-libgcc)
+    target_link_options(voterpool PRIVATE -static-libstdc++ -static-libgcc)
 endif()
 
 # Интеграция jemalloc (переопределение глобальных new/delete)
-target_compile_definitions(ace-engine PRIVATE JEMALLOC_NO_DEMANGLE)
+target_compile_definitions(voterpool PRIVATE JEMALLOC_NO_DEMANGLE)
 
 # Тесты
-if(ACE_BUILD_TESTS)
+if(VOTERPOOL_BUILD_TESTS)
     enable_testing()
+    find_package(GTest CONFIG REQUIRED)
     add_subdirectory(tests)
 endif()
 
 # Установка (Install)
-install(TARGETS ace-engine DESTINATION bin)
-install(FILES config/default.yaml DESTINATION etc/ace)
+install(TARGETS voterpool DESTINATION bin)
+install(FILES config/default.yaml DESTINATION etc/voterpool)
 8.4. Инициализация в main.cpp
 Точка входа собирает все компоненты воедино (Dependency Injection) и запускает сервер.
 
@@ -169,21 +201,21 @@ cpp
 
 int main(int argc, char** argv) {
     // 1. Парсинг CLI и загрузка config.yaml
-    auto config = ace::Config::load(argc, argv);
+    auto config = voterpool::Config::load(argc, argv);
     
     // 2. Инициализация логгера (spdlog async)
-    ace::Logger::init(config.logging);
+    voterpool::Logger::init(config.logging);
     
     // 3. Инициализация хранилища (RocksDB)
-    auto db = std::make_shared<ace::RocksDBWrapper>(config.storage);
+    auto db = std::make_shared<voterpool::RocksDBWrapper>(config.storage);
     
     // 4. Инициализация менеджера SSE и Воркеров
-    auto sse_hub = std::make_shared<ace::SseHub>();
-    auto workers = std::make_shared<ace::Workers>(db, sse_hub, config);
+    auto sse_hub = std::make_shared<voterpool::SseHub>();
+    auto workers = std::make_shared<voterpool::Workers>(db, sse_hub, config);
     workers->start(); // Запуск std::jthread для TTL и SSE dispatcher
     
     // 5. Инициализация бизнес-логики и MCP хендлера
-    auto mcp_handler = std::make_shared<ace::McpHandler>(db, sse_hub, config);
+    auto mcp_handler = std::make_shared<voterpool::McpHandler>(db, sse_hub, config);
     
     // 6. Настройка Drogon
     drogon::app()
@@ -191,8 +223,10 @@ int main(int argc, char** argv) {
         .addListener(config.server.host, config.server.port)
         .setThreadNum(config.server.threads_num);
         
-    // Регистрация Middleware (Авторизация)
-   auto auth_middleware = std::make_shared<ace::AuthMiddleware>(config.auth, db);
+    // Регистрация Middleware (Авторизация). Мягкий режим (docs/03 §1.2): невалидный токен
+   // блокируется сразу; ОТСУТСТВИЕ заголовка проходит дальше — McpHandler сам требует
+   // AgentContext для всех инструментов, кроме register_agent. GET /health анонимен.
+   auto auth_middleware = std::make_shared<voterpool::AuthMiddleware>(config.auth, db);
    drogon::app().registerPreHandlingAdvice(auth_middleware);
 
     // Регистрация маршрутов
@@ -213,7 +247,7 @@ int main(int argc, char** argv) {
     });
 
     // 7. Запуск сервера (блокирующий вызов)
-    spdlog::info("ACE Engine started on port {}", config.server.port);
+    spdlog::info("Voterpool Engine started on port {}", config.server.port);
     drogon::app().run();
 
     // 8. Очистка после остановки Drogon

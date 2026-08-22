@@ -4,6 +4,8 @@ OpenSpec: SSE Event Schemas (Real-time Push)
 
 # 1. SSE Event Schemas (Real-time Push)
 
+Важно (MCP 2026-07-28): наш SSE-поток — это ПРИКЛАДНОЕ расширение доменных событий `io.voterpool/domain-events` (объявляется в server/discover, docs/05 §1.0), а НЕ устаревший legacy HTTP+SSE транспорт MCP и не subscriptions-механизм протокола. Клиент явно подписывается соединением (opt-in). Порядок событий внутри организации детерминирован (единый диспетчер, FIFO).
+
 ## 1.1. Транспорт и Эндпоинт
 
 Для передачи событий от сервера к агентам используется протокол Server-Sent Events (SSE) поверх HTTP/1.1 или HTTP/2. В C++ фреймворке Drogon это реализуется через удержание асинхронного стрима (HttpResponsePtr) и дозаписи в него данных по мере появления событий.
@@ -32,7 +34,7 @@ data: {json_payload_string}
 
 ## 1.3. Каталог событий (Event Schemas)
 
-Сервер ACE генерирует следующие типы событий. payload_json во всех событиях содержит строгий JSON, парсимый simdjson на стороне клиента.
+Сервер Voterpool генерирует следующие типы событий. payload_json во всех событиях содержит строгий JSON, парсимый simdjson на стороне клиента.
 
 ## 1.3.1. Event: proposal_created
 
@@ -70,7 +72,7 @@ json
 "current_yes_power": 45.5,
 "current_no_power": 10.0,
 "current_abstain_power": 5.0,
-"total_voting_power": 100.0,
+"total_voting_power_at_creation": 100.0, // Замороженная сумма предложения на момент создания (docs/01 §2.4)
 "voters_count": 3,
 "proposal_status": "ACTIVE"
 }
@@ -90,14 +92,15 @@ json
 "yes_power": 60.0,
 "no_power": 10.0,
 "abstain_power": 5.0,
-"config_delta_applied": true // true, если были изменены настройки организации
+"config_delta_applied": true, // true, если были изменены настройки организации
+"action_applied": null // "APPROVE_MEMBER" | "UPDATE_ORG_INFO" | null — применённое действие ACTION-предложения
 }
 
 ## 1.3.4. Event: member_joined
 
 Генерируется, когда в CLOSED организацию принимают нового участника, или когда агент вступает в OPEN организацию.
 
-Триггер: join_organization (для OPEN) или approve_member (для CLOSED).
+Триггер: join_organization (для OPEN) или PASSED ACTION-предложения APPROVE_MEMBER (для CLOSED).
 Payload:
 json
 
@@ -107,6 +110,36 @@ json
 "role": "MEMBER",
 "voting_power": 15.0,
 "new_total_voting_power": 115.0
+}
+
+## 1.3.5. Event: member_left
+
+Триггер: Успешный MCP-вызов leave_organization.
+Payload:
+{
+"org_id": "uuid-string",
+"agent_id": "uuid-string",
+"new_total_voting_power": 99.0
+}
+
+## 1.3.6. Event: admin_transferred
+
+Триггер: Успешный MCP-вызов transfer_admin.
+Payload:
+{
+"org_id": "uuid-string",
+"previous_admin_id": "uuid-string",
+"new_admin_id": "uuid-string"
+}
+
+## 1.3.7. Event: organization_dissolved
+
+Триггер: Успешный MCP-вызов dissolve_organization.
+Payload:
+{
+"org_id": "uuid-string",
+"dissolved_by": "uuid-string",
+"active_proposals_closed": 2
 }
 
 ## 1.4. Жизненный цикл соединения и Heartbeats
@@ -128,14 +161,14 @@ text
 
 cpp
 
-// Ключ - org*id, Значение - список активных асинхронных стримов Drogon
+// Ключ - org_id, Значение - список активных асинхронных стримов Drogon
 std::unordered_map<std::string,
-std::vector<std::shared_ptr<drogon::HttpResponse>>> active_subscriptions*;
+std::vector<std::shared_ptr<drogon::HttpResponse>>> active_subscriptions;
 Флоу подписки:
 
-Агент открывает GET /mcp/events?org*id=X.
-AuthMiddleware проверяет токен и Membership (агент должен быть ACTIVE в орге X).
-SseHub::addSubscriber(org_id, response) добавляет стрим в active_subscriptions*.
+Агент открывает GET /mcp/events (БЕЗ параметра org_id).
+AuthMiddleware проверяет токен и вычисляет список org_id агента через обратный индекс cf_agent_orgs (все ACTIVE членства, см. docs/01 §1.1, docs/03 §1.5).
+Для КАЖДОГО org_id из списка вызывается SseHub::addSubscriber(org_id, response), добавляющий стрим в active_subscriptions.
 Drogon удерживает соединение открытым (асинхронно).
 Флоу отписки (Разрыв соединения):
 

@@ -5,9 +5,9 @@ OpenSpec: Конфигурация приложения (config.yaml)
 # 1. Конфигурация приложения
 ## 1.1. Формат и загрузка конфигурации
 Формат: YAML 1.2.
-Загрузка: При старте бинарника (./ace-engine --config=/path/to/config.yaml), C++ парсер (например, yaml-cpp) читает файл в статическую структуру конфигурации.
+Загрузка: При старте бинарника (./voterpool --config=/path/to/config.yaml), C++ парсер (например, yaml-cpp) читает файл в статическую структуру конфигурации.
 Валидация: Если файл отсутствует или содержит невалидные значения (например, отрицательный порт), процесс немедленно завершается с кодом 1 и выводит ошибку в stderr.
-Environment Variables: Поддерживается переопределение любых параметров через переменные окружения (полезно для Docker/K8s). Формат: ACE_{SECTION}_{KEY} (например, ACE_SERVER_PORT=8081).
+Environment Variables: Поддерживается переопределение любых параметров через переменные окружения (полезно для Docker/K8s). Формат: VOTERPOOL_{SECTION}_{KEY} (например, VOTERPOOL_SERVER_PORT=8081).
 
 ## 1.2. Структура config.yaml
 Ниже представлен полный пример конфигурационного файла с комментариями.
@@ -15,15 +15,15 @@ Environment Variables: Поддерживается переопределени
 yaml
 
 # ==========================================
-# ACE Engine Configuration
+# Voterpool Configuration
 # ==========================================
 
 server:
   ssl:
-  # Включить TLS/SSL для HTTP и SSE (Enterprise)
-  enabled: false
-  cert_path: "/etc/ssl/certs/ace.crt"
-  key_path: "/etc/ssl/private/ace.key"
+    # Включить TLS/SSL для HTTP и SSE (Enterprise)
+    enabled: false
+    cert_path: "/etc/ssl/certs/voterpool.crt"
+    key_path: "/etc/ssl/private/voterpool.key"
   # IP адрес для привязки. "0.0.0.0" для всех интерфейсов.
   host: "0.0.0.0"
   # Порт для HTTP/MCP и SSE соединений.
@@ -38,7 +38,7 @@ server:
 
 storage:
   # Путь к директории RocksDB. Должна быть доступна для записи.
-  path: "./data/ace_db"
+  path: "./data/voterpool_db"
   # Максимальное количество открытых файлов RocksDB (-1 означает безлимит).
   max_open_files: -1
   # Размер одного MemTable в памяти перед сбросом на диск (64 MB).
@@ -51,6 +51,7 @@ storage:
 auth:
   # Режим авторизации: "NATIVE" (встроенные токены) или "OIDC" (Enterprise JWT).
   mode: "NATIVE"
+  # В MVP поддерживается только NATIVE. Раздел oidc ниже игнорируется до реализации Enterprise (OIDC) части.
   
   # Настройки для OIDC mode (игнорируются, если mode: NATIVE)
   oidc:
@@ -66,6 +67,18 @@ sse:
   # Защищает соединения от обрыва прокси-серверами (Nginx, CloudFlare).
   heartbeat_interval_sec: 15
 
+metrics:
+  # Включить эндпоинт Prometheus GET /metrics (docs/11). Анонимный доступ.
+  enabled: true
+  # Путь экспозиции метрик.
+  path: "/metrics"
+
+mcp:
+  # Поддерживаемая версия протокола MCP (заголовок MCP-Protocol-Version, docs/05 §1.0).
+  protocol_version: "2026-07-28"
+  # TTL кэша каталога tools/list в миллисекундах (поле ttlMs ответа).
+  tools_list_cache_ttl_ms: 300000
+
 logging:
   # Уровень логирования приложения (trace, debug, info, warn, error).
   level: "info"
@@ -79,6 +92,7 @@ logging:
   log_file: ""
 
 rate_limit:
+  # [Enterprise — отложено до MVP] Секция неактивна в MVP (enabled: false по умолчанию).
   # Включить лимитирование запросов (RPS) на одного агента.
   enabled: false
   # Лимит запросов в секунду на один agent_id.
