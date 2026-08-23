@@ -1,26 +1,6 @@
-# Наблюдаемость (observability)
+# Delta: observability
 
-## Purpose
-
-Наблюдаемость: анонимные эндпоинты GET /health и GET /metrics (Prometheus text format), каталог метрик с дисциплиной кардинальности, структурированное логирование запросов и fail-fast деградированный режим хранилища (-32050/HTTP 503) (docs/11, docs/07 §1.5).
-
-Область действия: редакция **On-Premises (Self-Hosted)**. Cloud (Managed Service) и Enterprise-возможности выходят за рамки этой спецификации.
-
-## Requirements
-
-### Requirement: Health-эндпоинт
-
-GET /health ДОЛЖЕН быть анонимным и отвечать 200 OK на здоровом движке и HTTP 503 в деградированном режиме хранилища.
-
-#### Scenario: Здоровый движок
-
-- **WHEN** GET /health при работающем хранилище
-- **THEN** ответ HTTP 200
-
-#### Scenario: Деградированное хранилище
-
-- **WHEN** GET /health после перевода движка в деградированный режим
-- **THEN** ответ HTTP 503
+## MODIFIED Requirements
 
 ### Requirement: Каталог метрик Prometheus
 
@@ -40,28 +20,6 @@ GET /metrics ДОЛЖЕН быть анонимным, возвращать text
 
 - **WHEN** POST /mcp обработан с `_meta["io.modelcontextprotocol/clientInfo"]` и без него
 - **THEN** voterpool_mcp_client_meta_total содержит семплы present="true" и present="false", увеличивающиеся соответственно; имя/версия клиента НЕ появляются в лейблах
-### Requirement: Дисциплина кардинальности лейблов
-
-Лейблы метрик ДОЛЖНЫ браться только из ограниченных множеств (method, name, outcome, decision, final_status, kind, code, event_type, consensus_model, from/to, io/corruption). Лейблы agent_id, org_id, proposal_id ЗАПРЕЩЕНЫ.
-
-#### Scenario: Отсутствие неограниченных лейблов
-
-- **WHEN** инспектируется выдача /metrics
-- **THEN** ни одна метрика не содержит лейблов agent_id/org_id/proposal_id
-
-### Requirement: Деградированный режим хранилища
-
-При ошибке записи/открытия/сброса хранилища класса IOError или Corruption движок ОБЯЗАН установить единый атомарный флаг нездоровья с критической записью лога. Пока флаг установлен, ВСЕ новые запросы POST /mcp ДОЛЖНЫ мгновенно отклоняться ошибкой -32050 Server Overloaded с HTTP 503 и data.reason "Storage backend unavailable" (проверка флага до разбора тела и любых обращений к БД); исключения — GET /health и GET /metrics. Выполняющиеся в момент сбоя запросы ДОЛЖНЫ завершаться штатно. Автовосстановление внутри процесса ОТСУТСТВУЕТ: флаг сбрасывается только рестартом процесса.
-
-#### Scenario: Backpressure при деградации
-
-- **WHEN** хранилище вернуло IOError (например, переполнен диск)
-- **THEN** каждый новый POST /mcp немедленно получает -32050 и HTTP 503 без обращения к БД
-
-#### Scenario: Нет автовосстановления
-
-- **WHEN** диск освобождён, но процесс не перезапущен
-- **THEN** движок остаётся в деградированном режиме (-32050) до рестарта
 
 ### Requirement: Структурированное логирование запросов
 

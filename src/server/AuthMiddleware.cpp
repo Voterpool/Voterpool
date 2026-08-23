@@ -2,6 +2,7 @@
 
 #include "core/Metrics.h"
 #include "mcp/JsonRpcError.h"
+#include "mcp/RequestLog.h"
 #include "mcp/tools/ToolRegistry.h"
 
 #include <drogon/HttpResponse.h>
@@ -87,14 +88,31 @@ void AuthMiddleware::handle(const drogon::HttpRequestPtr& req, AdviceCallback&& 
 
     const bool isMcpPost = path == "/mcp" && req->method() == drogon::Post;
     const bool isSse = path == "/mcp/events" && req->method() == drogon::Get;
+    const auto mwT0 = std::chrono::steady_clock::now();
+    std::string mwRequestId;
+    std::string mwMethod;
+    std::string mcpName;
+    auto mwLog = [&](bool ok, int errorCode, const std::string& tool) {
+        if (!isMcpPost) return;
+        mcp::RequestLogContext c;
+        c.requestId = mwRequestId.empty() ? (mwRequestId = mcp::nextRequestId()) : mwRequestId;
+        c.ok = ok;
+        c.errorCode = errorCode;
+        c.t0 = mwT0;
+        c.method = mwMethod;
+        c.tool = tool;
+        mcp::emitRequestLog(c);
+    };
 
     if (isMcpPost) {
         const std::string hdrVersion = req->getHeader("MCP-Protocol-Version");
         const std::string mcpMethod = req->getHeader("Mcp-Method");
-        const std::string mcpName = req->getHeader("Mcp-Name");
+        mcpName = req->getHeader("Mcp-Name");
         const BodyProbe probe = probeBody(std::string(req->getBody()));
+        mwMethod = probe.method;
 
         auto rejectProtocol = [&](const std::string& reason) {
+            mwLog(false, -32600, mcpName.empty() ? "-" : mcpName);
             mcp::RpcError e{-32600, "Invalid Request", Json::Value()};
             e.data["reason"] = reason;
             e.data["supportedVersions"].append(app_.config.mcp.protocol_version);
@@ -148,6 +166,7 @@ void AuthMiddleware::handle(const drogon::HttpRequestPtr& req, AdviceCallback&& 
 
     auto ctx = auth_.validate(token);
     if (!ctx) {
+        mwLog(false, -32001, mcpName.empty() ? std::string("-") : mcpName);
         mcp::RpcError e = mcp::RpcError::unauthorized("Auth token missing or invalid");
         respond(jsonRpcErrorBody(e.code, e.message, e.data,
                                  isSse ? drogon::k401Unauthorized : drogon::k200OK));

@@ -2,6 +2,7 @@
 
 #include "core/Metrics.h"
 #include "mcp/JsonRpcError.h"
+#include "mcp/RequestLog.h"
 #include "mcp/tools/ToolDefs.h"
 #include "mcp/tools/ToolRegistry.h"
 #include "server/AuthProvider.h"
@@ -13,6 +14,7 @@ namespace voterpool::mcp {
 namespace {
 
 constexpr const char* kMetaAuthKey = "io.voterpool/auth";
+constexpr const char* kMetaClientInfoKey = "io.modelcontextprotocol/clientInfo";
 
 const AgentContext* agentFromRequest(const drogon::HttpRequestPtr& req) {
     if (req->attributes()->find("agent_context")) {
@@ -129,10 +131,29 @@ Json::Value jsonFromValue(simdjson::ondemand::value v) {
     return out;
 }
 
-void recordRequestMetrics(const std::string& method, const std::string& name, bool ok) {
+ClientMeta extractClientMeta(const Json::Value& root) {
+    ClientMeta meta;
+    if (!root.isObject() || !root.isMember("params") || !root["params"].isObject()) return meta;
+    const Json::Value& params = root["params"];
+    if (!params.isMember("_meta") || !params["_meta"].isObject()) return meta;
+    const Json::Value& m = params["_meta"];
+    if (!m.isMember(kMetaClientInfoKey) || !m[kMetaClientInfoKey].isObject()) return meta;
+    const Json::Value& info = m[kMetaClientInfoKey];
+    if (info.isMember("name") && info["name"].isString()) meta.name = info["name"].asString();
+    if (info.isMember("version") && info["version"].isString()) meta.version = info["version"].asString();
+    meta.present = !meta.name.empty() || !meta.version.empty();
+    return meta;
+}
+
+void recordRequestMetrics(const std::string& method, const std::string& name, bool ok,
+                          RequestLogContext logCtx) {
     MetricsRegistry::instance().incCounter(
         "voterpool_mcp_requests_total",
         {{"method", method}, {"name", name}, {"outcome", ok ? "ok" : "error"}});
+    logCtx.method = method;
+    logCtx.tool = name;
+    logCtx.ok = ok;
+    emitRequestLog(logCtx);
 }
 
 void recordErrorMetric(int code) {
@@ -233,7 +254,21 @@ Result<Json::Value> dispatchToolForTests(AppContext& app, const AgentContext* ag
 void handleMcpPost(AppContext& app, const drogon::HttpRequestPtr& req,
                    std::function<void(const drogon::HttpResponsePtr&)>& callback) {
     auto t0 = std::chrono::steady_clock::now();
+    const std::string requestId = nextRequestId();
     std::string body(req->getBody());
+    const AgentContext* agent = agentFromRequest(req);
+    ClientMeta clientMeta;
+
+    auto makeLogCtx = [&](bool ok, int errorCode) {
+        RequestLogContext c;
+        c.requestId = requestId;
+        c.agentId = agent ? agent->agent_id : std::string();
+        c.ok = ok;
+        c.errorCode = errorCode;
+        c.t0 = t0;
+        c.client = clientMeta;
+        return c;
+    };
 
     Json::Value root;
     try {
@@ -245,21 +280,25 @@ void handleMcpPost(AppContext& app, const drogon::HttpRequestPtr& req,
             root = jsonFromObject(doc.get_object());
         }
     } catch (const simdjson::simdjson_error&) {
-        recordRequestMetrics("tools/call", "_parse", false);
+        recordRequestMetrics("tools/call", "_parse", false, makeLogCtx(false, kErrParse));
         recordErrorMetric(kErrParse);
         callback(jsonResponse(errorBody(Json::Value(Json::nullValue), kErrParse, "Parse error", Json::Value()),
                               drogon::k400BadRequest));
         return;
     }
 
-    const AgentContext* agent = agentFromRequest(req);
+    const ClientMeta extracted = extractClientMeta(root);
+    clientMeta = extracted;
+    MetricsRegistry::instance().incCounter(
+        "voterpool_mcp_client_meta_total",
+        {{"present", clientMeta.present ? "true" : "false"}});
 
     Json::Value id = (root.isObject() && root.isMember("id")) ? root["id"] : Json::Value(Json::nullValue);
 
     if (!root.isObject() || !root.isMember("jsonrpc") || !root["jsonrpc"].isString() ||
         root["jsonrpc"].asString() != "2.0" || !root.isMember("method") || !root["method"].isString()) {
         recordErrorMetric(kErrInvalidRequest);
-        recordRequestMetrics("tools/call", "_request", false);
+        recordRequestMetrics("tools/call", "_request", false, makeLogCtx(false, kErrInvalidRequest));
         callback(jsonResponse(errorBody(id, kErrInvalidRequest, "Invalid Request", Json::Value()), drogon::k200OK));
         return;
     }
@@ -274,6 +313,7 @@ void handleMcpPost(AppContext& app, const drogon::HttpRequestPtr& req,
         const MetaAuthStatus st = authenticateViaMeta(app, root, resolved);
         if (st == MetaAuthStatus::Invalid) {
             recordErrorMetric(kErrUnauthorized);
+            recordRequestMetrics("tools/call", "_auth", false, makeLogCtx(false, kErrUnauthorized));
             callback(jsonResponse(errorBody(id, kErrUnauthorized, "Unauthorized", Json::Value()), drogon::k200OK));
             return;
         }
@@ -284,7 +324,7 @@ void handleMcpPost(AppContext& app, const drogon::HttpRequestPtr& req,
     }
 
     if (method == "server/discover") {
-        recordRequestMetrics("tools/call", "server/discover", true);
+        recordRequestMetrics(method, "server/discover", true, makeLogCtx(true, 0));
         callback(jsonResponse(structuredResultBody(id, discoverResponse(app)), drogon::k200OK));
         MetricsRegistry::instance().observe(
             "voterpool_http_request_duration_seconds",
@@ -292,7 +332,7 @@ void handleMcpPost(AppContext& app, const drogon::HttpRequestPtr& req,
         return;
     }
     if (method == "tools/list") {
-        recordRequestMetrics("tools/call", "tools/list", true);
+        recordRequestMetrics(method, "tools/list", true, makeLogCtx(true, 0));
         callback(jsonResponse(structuredResultBody(id, toolsListResponse(app)), drogon::k200OK));
         MetricsRegistry::instance().observe(
             "voterpool_http_request_duration_seconds",
@@ -306,14 +346,14 @@ void handleMcpPost(AppContext& app, const drogon::HttpRequestPtr& req,
         const Json::Value& params = root.get("params", Json::Value(Json::objectValue));
         if (!params.isObject() || !params.isMember("name") || !params["name"].isString()) {
             recordErrorMetric(kErrInvalidRequest);
-            recordRequestMetrics("tools/call", "_request", false);
+            recordRequestMetrics(method, "_request", false, makeLogCtx(false, kErrInvalidRequest));
             callback(jsonResponse(errorBody(id, kErrInvalidRequest, "Invalid Request", Json::Value()), drogon::k200OK));
             return;
         }
         const std::string toolName = params["name"].asString();
         if (!headerName.empty() && headerName != toolName) {
             recordErrorMetric(kErrInvalidRequest);
-            recordRequestMetrics("tools/call", toolName, false);
+            recordRequestMetrics(method, toolName, false, makeLogCtx(false, kErrInvalidRequest));
             callback(jsonResponse(errorBody(id, kErrInvalidRequest, "Invalid Request", Json::Value()), drogon::k200OK));
             return;
         }
@@ -321,7 +361,8 @@ void handleMcpPost(AppContext& app, const drogon::HttpRequestPtr& req,
                                ? params["arguments"]
                                : Json::Value(Json::objectValue);
         auto result = dispatchTool(app, agent, toolName, args);
-        recordRequestMetrics("tools/call", toolName, result.ok());
+        recordRequestMetrics(method, toolName, result.ok(),
+                             makeLogCtx(result.ok(), result.ok() ? 0 : result.error().code));
         if (!result.ok()) {
             callback(respondError(id, result.error()));
         } else {
@@ -332,13 +373,13 @@ void handleMcpPost(AppContext& app, const drogon::HttpRequestPtr& req,
                                        [&](const ToolDef& d) { return method == d.name; });
         if (!known) {
             recordErrorMetric(kErrMethodNotFound);
-            recordRequestMetrics("direct", method, false);
+            recordRequestMetrics("direct", method, false, makeLogCtx(false, kErrMethodNotFound));
             callback(jsonResponse(errorBody(id, kErrMethodNotFound, "Method not found", Json::Value()), drogon::k200OK));
             return;
         }
         if (!headerName.empty() && headerName != method) {
             recordErrorMetric(kErrInvalidRequest);
-            recordRequestMetrics("direct", method, false);
+            recordRequestMetrics("direct", method, false, makeLogCtx(false, kErrInvalidRequest));
             callback(jsonResponse(errorBody(id, kErrInvalidRequest, "Invalid Request", Json::Value()), drogon::k200OK));
             return;
         }
@@ -346,7 +387,8 @@ void handleMcpPost(AppContext& app, const drogon::HttpRequestPtr& req,
                                ? root["params"]
                                : Json::Value(Json::objectValue);
         auto result = dispatchTool(app, agent, method, args);
-        recordRequestMetrics("direct", method, result.ok());
+        recordRequestMetrics("direct", method, result.ok(),
+                             makeLogCtx(result.ok(), result.ok() ? 0 : result.error().code));
         if (!result.ok()) {
             callback(respondError(id, result.error()));
         } else {

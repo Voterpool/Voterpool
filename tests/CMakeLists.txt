@@ -6,6 +6,7 @@ add_executable(voterpool_unit_tests
     unit/test_config.cpp
     unit/test_onboarding.cpp
     unit/test_proposal_lock.cpp
+    unit/test_request_log.cpp
 )
 target_link_libraries(voterpool_unit_tests PRIVATE voterpool_core GTest::gtest_main)
 

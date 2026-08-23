@@ -231,6 +231,30 @@ TEST(E2eProtocol, DirectDeprecatedModeEquivalentToToolsCall) {
     EXPECT_EQ(profile["name"].asString(), "Direct Mode Agent");
 }
 
+TEST(E2eProtocol, ClientMetaMetricPresence) {
+    // Запрос С clientInfo в _meta.
+    Json::Value withMeta(Json::objectValue);
+    withMeta["_meta"]["io.modelcontextprotocol/clientInfo"]["name"] = "metrics-probe";
+    withMeta["_meta"]["io.modelcontextprotocol/clientInfo"]["version"] = "9.9";
+    Json::Value listed = parseJson(
+        mcpPost(rpcBody("tools/list", withMeta), HttpUtil::mcpHeaders("tools/list")).body);
+    ASSERT_FALSE(isError(listed));
+
+    // Запрос БЕЗ clientInfo.
+    Json::Value bare = parseJson(
+        mcpPost(rpcBody("tools/list", Json::Value(Json::nullValue)),
+                HttpUtil::mcpHeaders("tools/list")).body);
+    ASSERT_FALSE(isError(bare));
+
+    HttpResponse metrics = HttpUtil::get(E2eEnv::instance().host(), E2eEnv::instance().port(), "/metrics");
+    EXPECT_NE(metrics.body.find("voterpool_mcp_client_meta_total{present=\"true\"}"), std::string::npos)
+        << "семпл present=true после запроса с clientInfo";
+    EXPECT_NE(metrics.body.find("voterpool_mcp_client_meta_total{present=\"false\"}"), std::string::npos)
+        << "семпл present=false после запроса без clientInfo";
+    // Имя клиента не становится лейблом (дисциплина кардинальности).
+    EXPECT_EQ(metrics.body.find("metrics-probe"), std::string::npos);
+}
+
 TEST(E2eProtocol, StockClientOnboardingLoop) {
     // Профиль «стоковый клиент»: версия передаётся в params._meta, из
     // обязательных заголовков — только Mcp-Method (+Mcp-Name для тулз).
