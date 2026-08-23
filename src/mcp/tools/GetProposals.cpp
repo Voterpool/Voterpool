@@ -5,9 +5,13 @@ namespace voterpool::mcp {
 ToolDef defGetProposals() {
     return ToolDef{
         "get_proposals",
-        "List proposals of an organization with aggregated vote counters (filter: ACTIVE | COMPLETED | ALL)",
+        "List proposals of an organization with aggregated vote counters (filter: ACTIVE | COMPLETED | ALL). "
+        "Optional updated_since (unix seconds) returns only proposals created, voted or closed after it - "
+        "use it for cheap incremental polling",
         [] {
-            return schemaObject({{"org_id", Json::Value("string")}, {"filter", Json::Value("string")}},
+            return schemaObject({{"org_id", Json::Value("string")},
+                                 {"filter", Json::Value("string")},
+                                 {"updated_since", Json::Value("integer")}},
                                 {"org_id"});
         },
         [](ToolContext& tc, const Json::Value& args) -> Result<Json::Value> {
@@ -20,6 +24,15 @@ ToolDef defGetProposals() {
                 if (filter != "ACTIVE" && filter != "COMPLETED" && filter != "ALL")
                     return RpcError::invalidParams("filter must be ACTIVE, COMPLETED or ALL");
             }
+            std::int64_t updatedSince = -1;
+            if (args.isMember("updated_since")) {
+                const Json::Value& us = args["updated_since"];
+                if (us.isBool() || !us.isIntegral())
+                    return RpcError::invalidParams("updated_since must be a non-negative integer");
+                updatedSince = us.asInt64();
+                if (updatedSince < 0)
+                    return RpcError::invalidParams("updated_since must be a non-negative integer");
+            }
 
             auto orgOpt = tc.app.orgs->get(orgId.value());
             if (!orgOpt) return RpcError::notFound("Organization", orgId.value());
@@ -31,12 +44,14 @@ ToolDef defGetProposals() {
                 const bool active = p.status == ProposalStatus::ACTIVE;
                 if (filter == "ACTIVE" && !active) continue;
                 if (filter == "COMPLETED" && active) continue;
+                if (updatedSince >= 0 && p.updated_at <= updatedSince) continue;
                 Json::Value item;
                 item["proposal_id"] = p.proposal_id;
                 item["title"] = p.title;
                 item["status"] = toString(p.status);
                 item["created_at"] = static_cast<Json::Int64>(p.created_at);
                 item["expires_at"] = static_cast<Json::Int64>(p.expires_at);
+                item["updated_at"] = static_cast<Json::Int64>(p.updated_at);
                 item["yes_power"] = p.yes_power;
                 item["no_power"] = p.no_power;
                 item["abstain_power"] = p.abstain_power;

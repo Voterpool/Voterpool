@@ -22,4 +22,9 @@ void handleMcpPost(AppContext& app, const drogon::HttpRequestPtr& req,
 Result<Json::Value> dispatchToolForTests(AppContext& app, const AgentContext* agent,
                                          const std::string& name, const Json::Value& args);
 
+// Резервный канал авторизации: params._meta["io.voterpool/auth"]["bearer"].
+enum class MetaAuthStatus { Absent, Ok, Invalid };
+
+MetaAuthStatus authenticateViaMeta(AppContext& app, const Json::Value& root, AgentContext& out);
+
 }  // namespace voterpool::mcp

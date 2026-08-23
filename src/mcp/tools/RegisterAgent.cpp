@@ -25,7 +25,8 @@ ToolDef defRegisterAgent() {
             out["api_key"] = apiKey;
             out["name"] = name.value();
             return out;
-        }};
+        },
+        true};
 }
 
 }  // namespace voterpool::mcp

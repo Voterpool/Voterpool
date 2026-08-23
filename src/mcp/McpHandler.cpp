@@ -12,6 +12,8 @@
 namespace voterpool::mcp {
 namespace {
 
+constexpr const char* kMetaAuthKey = "io.voterpool/auth";
+
 const AgentContext* agentFromRequest(const drogon::HttpRequestPtr& req) {
     if (req->attributes()->find("agent_context")) {
         return &(req->attributes()->get<AgentContext>("agent_context"));
@@ -145,7 +147,7 @@ Result<Json::Value> dispatchTool(AppContext& app, const AgentContext* agent, con
                                  const Json::Value& args) {
     for (const auto& def : catalog()) {
         if (name != def.name) continue;
-        if (!agent && std::string(def.name) != "register_agent") {
+        if (!agent && !def.anonymous) {
             return Result<Json::Value>(RpcError::unauthorized());
         }
         ToolContext tc{app, agent};
@@ -194,6 +196,22 @@ Json::Value toolsListResponse(AppContext& app) {
 
 }  // namespace
 
+MetaAuthStatus authenticateViaMeta(AppContext& app, const Json::Value& root, AgentContext& out) {
+    if (!root.isObject() || !root.isMember("params") || !root["params"].isObject())
+        return MetaAuthStatus::Absent;
+    const Json::Value& meta = root["params"]["_meta"];
+    if (!meta.isObject() || !meta.isMember(kMetaAuthKey)) return MetaAuthStatus::Absent;
+    const Json::Value& auth = meta[kMetaAuthKey];
+    if (!auth.isObject() || !auth.isMember("bearer") || !auth["bearer"].isString() ||
+        auth["bearer"].asString().empty()) {
+        return MetaAuthStatus::Invalid;
+    }
+    auto ctx = app.authProvider->validate(auth["bearer"].asString());
+    if (!ctx) return MetaAuthStatus::Invalid;
+    out = *ctx;
+    return MetaAuthStatus::Ok;
+}
+
 Result<Json::Value> dispatchToolForTests(AppContext& app, const AgentContext* agent,
                                          const std::string& name, const Json::Value& args) {
     return dispatchToolForTestsImpl(app, agent, name, args);
@@ -233,6 +251,24 @@ void handleMcpPost(AppContext& app, const drogon::HttpRequestPtr& req,
         return;
     }
     const std::string method = root["method"].asString();
+
+    // Резервный канал авторизации: заголовок имеет приоритет; _meta читается
+    // только когда middleware не вставил контекст по заголовку. Невалидный
+    // _meta-токен отклоняется сразу (паритет с невалидным заголовком).
+    std::optional<AgentContext> metaCtx;
+    if (!agent) {
+        AgentContext resolved;
+        const MetaAuthStatus st = authenticateViaMeta(app, root, resolved);
+        if (st == MetaAuthStatus::Invalid) {
+            recordErrorMetric(kErrUnauthorized);
+            callback(jsonResponse(errorBody(id, kErrUnauthorized, "Unauthorized", Json::Value()), drogon::k200OK));
+            return;
+        }
+        if (st == MetaAuthStatus::Ok) {
+            metaCtx = std::move(resolved);
+            agent = &*metaCtx;
+        }
+    }
 
     if (method == "server/discover") {
         recordRequestMetrics("tools/call", "server/discover", true);

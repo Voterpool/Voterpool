@@ -14,6 +14,8 @@ std::vector<ToolDef>& catalog() {
         v.push_back(defUpdateVotingPower());
         v.push_back(defCreateProposal());
         v.push_back(defGetProposals());
+        v.push_back(defGetProposal());
+        v.push_back(defListPendingMembers());
         v.push_back(defListMembers());
         v.push_back(defCastVote());
         v.push_back(defSearchOrganizations());
@@ -23,6 +25,7 @@ std::vector<ToolDef>& catalog() {
         v.push_back(defTransferAdmin());
         v.push_back(defDissolveOrganization());
         v.push_back(defUpdateAgent());
+        v.push_back(defGetPlaybook());
         std::sort(v.begin(), v.end(),
                   [](const ToolDef& a, const ToolDef& b) { return std::string(a.name) < std::string(b.name); });
         return v;

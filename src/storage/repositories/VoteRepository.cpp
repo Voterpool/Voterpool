@@ -14,4 +14,17 @@ std::optional<Vote> VoteRepository::get(const std::string& orgId, const std::str
     return Codec::deserializeVote(*v);
 }
 
+std::vector<Vote> VoteRepository::listByProposal(const std::string& orgId, const std::string& proposalId) {
+    std::vector<Vote> out;
+    const std::string prefix = Keys::vote(orgId, proposalId, "");
+    auto it = db_.newIterator("cf_votes");
+    for (it->Seek(prefix); it->Valid(); it->Next()) {
+        std::string k = it->key().ToString();
+        if (k.rfind(prefix, 0) != 0) break;
+        auto v = Codec::deserializeVote(it->value().ToString());
+        if (v) out.push_back(std::move(*v));
+    }
+    return out;
+}
+
 }  // namespace voterpool

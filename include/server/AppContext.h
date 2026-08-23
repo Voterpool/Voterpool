@@ -4,6 +4,7 @@
 #include "consensus/ProposalLock.h"
 #include "core/Config.h"
 #include "core/IClock.h"
+#include "server/AuthProvider.h"
 #include "server/SseHub.h"
 #include "server/Workers.h"
 #include "storage/RocksDBWrapper.h"
@@ -28,6 +29,7 @@ struct AppContext {
     std::unique_ptr<VoteRepository> votes;
     std::unique_ptr<IndexRepository> indexes;
     std::unique_ptr<AuditLogRepository> audit;
+    std::unique_ptr<IAuthProvider> authProvider;
     ProposalLockRegistry locks;
     std::unique_ptr<ConsensusEngine> engine;
     std::unique_ptr<SseHub> hub;

@@ -21,6 +21,10 @@ public:
 
     void addLabelHelp(const std::string& name, const std::string& type, const std::string& help);
 
+    // Предрегистрация всех семейств метрик: /metrics отдаёт их с нулями
+    // сразу после старта процесса (детерминированный скрейп для Prometheus).
+    void registerDefaults();
+
     std::string expose() const;
 
     void resetForTests();

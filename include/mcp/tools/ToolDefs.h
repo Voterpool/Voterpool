@@ -10,6 +10,8 @@ ToolDef defJoinOrganization();
 ToolDef defUpdateVotingPower();
 ToolDef defCreateProposal();
 ToolDef defGetProposals();
+ToolDef defGetProposal();
+ToolDef defListPendingMembers();
 ToolDef defListMembers();
 ToolDef defCastVote();
 ToolDef defSearchOrganizations();
@@ -19,5 +21,6 @@ ToolDef defLeaveOrganization();
 ToolDef defTransferAdmin();
 ToolDef defDissolveOrganization();
 ToolDef defUpdateAgent();
+ToolDef defGetPlaybook();
 
 }  // namespace voterpool::mcp

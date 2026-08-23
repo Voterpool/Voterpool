@@ -4,6 +4,7 @@ add_executable(voterpool_unit_tests
     unit/test_keys.cpp
     unit/test_params_validation.cpp
     unit/test_config.cpp
+    unit/test_onboarding.cpp
 )
 target_link_libraries(voterpool_unit_tests PRIVATE voterpool_core GTest::gtest_main)
 
@@ -19,6 +20,7 @@ add_executable(voterpool_integration_tests
     integration/test_migration.cpp
     integration/test_checkpoint_restore.cpp
     integration/test_degraded_mode.cpp
+    integration/test_onboarding_flow.cpp
 )
 target_link_libraries(voterpool_integration_tests PRIVATE voterpool_core GTest::gtest_main)
 
@@ -27,6 +29,7 @@ add_executable(voterpool_e2e_tests
     e2e/test_mcp_flow.cpp
     e2e/test_sse_events.cpp
     e2e/test_errors_http.cpp
+    e2e/test_onboarding_http.cpp
     e2e/E2eEnv.cpp
     common/HttpUtil.cpp
     common/SseClient.cpp

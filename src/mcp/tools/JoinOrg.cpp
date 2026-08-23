@@ -100,6 +100,12 @@ ToolDef defJoinOrganization() {
             tc.app.indexes->addPending(batch, orgId.value(), tc.agent->agent_id, std::to_string(now));
             if (!tc.app.db->commit(batch)) return RpcError::internal("Storage write failed");
 
+            Json::Value req;
+            req["org_id"] = orgId.value();
+            req["agent_id"] = tc.agent->agent_id;
+            req["requested_at"] = static_cast<Json::Int64>(now);
+            tc.app.hub->deliver(SseEvent{orgId.value(), "join_requested", Codec::dump(req)});
+
             Json::Value out;
             out["org_id"] = orgId.value();
             out["status"] = "PENDING";
