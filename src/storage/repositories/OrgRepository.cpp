@@ -6,8 +6,12 @@ namespace voterpool {
 
 bool OrgRepository::put(const Organization& org) {
     rocksdb::WriteBatch batch;
-    db_.put(batch, "cf_organizations", Keys::org(org.org_id), Codec::serializeOrg(org));
+    put(batch, org);
     return db_.commit(batch);
+}
+
+void OrgRepository::put(rocksdb::WriteBatch& batch, const Organization& org) {
+    db_.put(batch, "cf_organizations", Keys::org(org.org_id), Codec::serializeOrg(org));
 }
 
 std::optional<Organization> OrgRepository::get(const std::string& orgId) {

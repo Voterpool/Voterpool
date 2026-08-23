@@ -18,6 +18,7 @@ public:
     explicit OrgRepository(RocksDBWrapper& db, IClock& clock) : db_(db), clock_(clock) {}
 
     bool put(const Organization& org);
+    void put(rocksdb::WriteBatch& batch, const Organization& org);
     std::optional<Organization> get(const std::string& orgId);
     std::int64_t countActive();
     std::int64_t countDissolved();

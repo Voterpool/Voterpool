@@ -123,3 +123,71 @@ TEST(Concurrency, TimerCloseRacesVoteUnderSameLock) {
     }
     EXPECT_DOUBLE_EQ(sum, p->yes_power + p->no_power + p->abstain_power);
 }
+
+TEST(Concurrency, VoteVsTimerCloseExactlyOneCloseAndLateVoteConflicts) {
+    constexpr int kIterations = 30;
+    for (int iter = 0; iter < kIterations; ++iter) {
+        auto h = Harness::create();
+        AgentContext creator = h->registerAgent("race1-creator");
+        AgentContext voterA = h->registerAgent("race1-a");
+        AgentContext voterB = h->registerAgent("race1-b");
+        Json::Value orgOut = createOrg(*h, creator, "Race1 Org", "OPEN",
+                                       orgConfigArgs("QUORUM_PERCENTAGE", 3600, "EQUAL", 100));
+        std::string orgId = orgOut["org_id"].asString();
+        for (const auto* a : {&voterA, &voterB}) {
+            Json::Value joinArgs;
+            joinArgs["org_id"] = orgId;
+            ASSERT_FALSE(h->isError(h->call("join_organization", joinArgs, a)));
+        }
+        Json::Value pOut = createProposal(*h, creator, orgId, "race1-" + std::to_string(iter));
+        std::string pid = pOut["proposal_id"].asString();
+
+        std::barrier start(2);
+        std::atomic<int> voteOutcome{0};  // 1 = ok, 2 = conflict, 0 = иное
+        std::thread voter([&] {
+            start.arrive_and_wait();
+            auto r = h->app->engine->castVote(voterA.agent_id, pid, VoteDecision::YES);
+            if (r.ok()) {
+                voteOutcome.store(1);
+            } else if (r.error().code == -32003) {
+                voteOutcome.store(2);
+            }
+        });
+        std::thread closer([&] {
+            start.arrive_and_wait();
+            h->app->engine->closeProposalByTimer(orgId, pid);
+        });
+        voter.join();
+        closer.join();
+
+        auto p = h->app->proposals->get(orgId, pid);
+        ASSERT_TRUE(p.has_value());
+        EXPECT_NE(p->status, ProposalStatus::ACTIVE) << "iter " << iter;
+
+        double sum = 0;
+        int rows = 0;
+        for (const auto& a : {creator.agent_id, voterA.agent_id, voterB.agent_id}) {
+            if (auto v = h->app->votes->get(orgId, pid, a)) {
+                ++rows;
+                sum += v->power_at_vote;
+            }
+        }
+        EXPECT_DOUBLE_EQ(sum, p->yes_power + p->no_power + p->abstain_power)
+            << "iter " << iter << ": счётчики равны сумме зафиксированных голосов";
+        EXPECT_EQ(rows, p->voters_count) << "iter " << iter;
+        if (voteOutcome.load() == 1) EXPECT_EQ(rows, 1) << "iter " << iter;
+        if (voteOutcome.load() == 2) EXPECT_EQ(rows, 0) << "iter " << iter << ": конфликт после закрытия";
+
+        auto late = h->app->engine->castVote(voterB.agent_id, pid, VoteDecision::YES);
+        ASSERT_FALSE(late.ok()) << "iter " << iter;
+        EXPECT_EQ(late.error().code, -32003) << "iter " << iter << ": опоздавший голос получает Conflict";
+
+        const auto statusBefore = p->status;
+        const double yesBefore = p->yes_power;
+        ASSERT_TRUE(h->app->engine->closeProposalByTimer(orgId, pid));
+        p = h->app->proposals->get(orgId, pid);
+        ASSERT_TRUE(p.has_value());
+        EXPECT_EQ(p->status, statusBefore) << "iter " << iter << ": повторное закрытие не меняет статус";
+        EXPECT_DOUBLE_EQ(p->yes_power, yesBefore) << "iter " << iter << ": ровно одно закрытие";
+    }
+}

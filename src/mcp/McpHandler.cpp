@@ -54,6 +54,14 @@ Json::Value resultBody(const Json::Value& id, const std::string& payloadJson) {
     return out;
 }
 
+Json::Value structuredResultBody(const Json::Value& id, const Json::Value& payload) {
+    Json::Value out;
+    out["jsonrpc"] = "2.0";
+    out["id"] = id.isNull() ? Json::Value(Json::nullValue) : id;
+    out["result"] = payload;
+    return out;
+}
+
 Json::Value jsonFromValue(simdjson::ondemand::value v);
 
 Json::Value jsonFromObject(simdjson::ondemand::object obj) {
@@ -168,18 +176,23 @@ Result<Json::Value> dispatchToolForTestsImpl(AppContext& app, const AgentContext
 
 Json::Value discoverResponse(AppContext& app) {
     Json::Value out;
-    out["protocolVersion"] = app.config.mcp.protocol_version;
+    out["resultType"] = "complete";
+    out["supportedVersions"] = Json::Value(Json::arrayValue);
+    out["supportedVersions"].append(app.config.mcp.protocol_version);
     out["capabilities"]["tools"] = Json::Value(Json::objectValue);
     Json::Value ext;
     ext["endpoint"] = "/mcp/events";
     out["extensions"]["io.voterpool/domain-events"] = std::move(ext);
-    out["serverInfo"]["name"] = "voterpool";
-    out["serverInfo"]["version"] = "1.0.0";
+    out["_meta"]["io.modelcontextprotocol/serverInfo"]["name"] = "voterpool";
+    out["_meta"]["io.modelcontextprotocol/serverInfo"]["version"] = "1.0.0";
+    out["ttlMs"] = 3600000;
+    out["cacheScope"] = "public";
     return out;
 }
 
 Json::Value toolsListResponse(AppContext& app) {
     Json::Value out;
+    out["resultType"] = "complete";
     Json::Value tools(Json::arrayValue);
     for (const auto& def : catalog()) {
         Json::Value t;
@@ -272,7 +285,7 @@ void handleMcpPost(AppContext& app, const drogon::HttpRequestPtr& req,
 
     if (method == "server/discover") {
         recordRequestMetrics("tools/call", "server/discover", true);
-        callback(respondResult(id, Codec::dump(discoverResponse(app))));
+        callback(jsonResponse(structuredResultBody(id, discoverResponse(app)), drogon::k200OK));
         MetricsRegistry::instance().observe(
             "voterpool_http_request_duration_seconds",
             std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count());
@@ -280,7 +293,7 @@ void handleMcpPost(AppContext& app, const drogon::HttpRequestPtr& req,
     }
     if (method == "tools/list") {
         recordRequestMetrics("tools/call", "tools/list", true);
-        callback(respondResult(id, Codec::dump(toolsListResponse(app))));
+        callback(jsonResponse(structuredResultBody(id, toolsListResponse(app)), drogon::k200OK));
         MetricsRegistry::instance().observe(
             "voterpool_http_request_duration_seconds",
             std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count());

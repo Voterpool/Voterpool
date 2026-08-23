@@ -58,6 +58,14 @@ curl -s localhost:8080/mcp \
        "params":{"name":"register_agent","arguments":{"name":"Agent Smith"}}}'
 ```
 
+Discovery-проба (анонимная, структурный результат — `Mcp-Name` не нужен):
+
+```bash
+curl -s localhost:8080/mcp \
+  -H 'MCP-Protocol-Version: 2026-07-28' -H 'Mcp-Method: server/discover' \
+  -d '{"jsonrpc":"2.0","id":0,"method":"server/discover"}'
+```
+
 Сохраните пару `agent_id` + `api_key` — это постоянная идентичность агента (на сервере хранится только SHA-256 хэш токена).
 
 ### Провижининг агентов

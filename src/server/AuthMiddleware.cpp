@@ -1,8 +1,11 @@
 #include "server/AuthMiddleware.h"
 
+#include "core/Metrics.h"
 #include "mcp/JsonRpcError.h"
+#include "mcp/tools/ToolRegistry.h"
 
 #include <drogon/HttpResponse.h>
+#include <simdjson.h>
 
 namespace voterpool {
 namespace {
@@ -31,6 +34,39 @@ std::string bearerToken(const drogon::HttpRequestPtr& req) {
     return token;
 }
 
+struct BodyProbe {
+    std::string method;
+    std::string metaVersion;
+};
+
+// Лёгкое извлечение method и params._meta[protocolVersion] из тела.
+// Ошибка парсинга не фатальна: запрос дойдёт до хендлера и получит -32700.
+BodyProbe probeBody(const std::string& body) {
+    BodyProbe probe;
+    try {
+        simdjson::dom::parser parser;
+        simdjson::dom::element elem = parser.parse(simdjson::padded_string(body));
+        try {
+            probe.method = std::string(elem.at_pointer("/method").get_string().value());
+        } catch (const simdjson::simdjson_error&) {
+        }
+        try {
+            probe.metaVersion =
+                std::string(elem.at_pointer("/params/_meta/io.modelcontextprotocol~1protocolVersion")
+                                .get_string()
+                                .value());
+        } catch (const simdjson::simdjson_error&) {
+        }
+    } catch (const simdjson::simdjson_error&) {
+    }
+    return probe;
+}
+
+bool isToolName(const std::string& name) {
+    const auto& cat = mcp::catalog();
+    return std::any_of(cat.begin(), cat.end(), [&](const mcp::ToolDef& d) { return name == d.name; });
+}
+
 }  // namespace
 
 void AuthMiddleware::handle(const drogon::HttpRequestPtr& req, AdviceCallback&& respond,
@@ -53,15 +89,49 @@ void AuthMiddleware::handle(const drogon::HttpRequestPtr& req, AdviceCallback&& 
     const bool isSse = path == "/mcp/events" && req->method() == drogon::Get;
 
     if (isMcpPost) {
-        const std::string version = req->getHeader("MCP-Protocol-Version");
+        const std::string hdrVersion = req->getHeader("MCP-Protocol-Version");
         const std::string mcpMethod = req->getHeader("Mcp-Method");
         const std::string mcpName = req->getHeader("Mcp-Name");
-        if (version != app_.config.mcp.protocol_version || mcpMethod != "tools/call" || mcpName.empty()) {
+        const BodyProbe probe = probeBody(std::string(req->getBody()));
+
+        auto rejectProtocol = [&](const std::string& reason) {
             mcp::RpcError e{-32600, "Invalid Request", Json::Value()};
-            e.data["reason"] = "Protocol violation: invalid MCP headers";
+            e.data["reason"] = reason;
+            e.data["supportedVersions"].append(app_.config.mcp.protocol_version);
             MetricsRegistry::instance().incCounter("voterpool_rpc_errors_total", {{"code", "-32600"}});
             respond(jsonRpcErrorBody(e.code, e.message, e.data, drogon::k200OK));
+        };
+
+        // Версия протокола: заголовок приоритетен, при его отсутствии — _meta.
+        const std::string effectiveVersion = !hdrVersion.empty() ? hdrVersion : probe.metaVersion;
+        if (effectiveVersion != app_.config.mcp.protocol_version) {
+            rejectProtocol("Unsupported protocol version");
             return;
+        }
+        if (!hdrVersion.empty() && !probe.metaVersion.empty() && hdrVersion != probe.metaVersion) {
+            rejectProtocol("MCP-Protocol-Version header does not match _meta protocolVersion");
+            return;
+        }
+
+        // Mcp-Method обязан совпадать с методом тела; для вызовов инструментов
+        // дополнительно требуется Mcp-Name.
+        if (!probe.method.empty()) {
+            if (mcpMethod != probe.method) {
+                rejectProtocol("Mcp-Method header does not match request method");
+                return;
+            }
+            const bool toolCall = probe.method == "tools/call" || isToolName(probe.method);
+            if (toolCall && mcpName.empty()) {
+                rejectProtocol("Mcp-Name header is required for tool calls");
+                return;
+            }
+        } else {
+            // Тело не распознано — действуем по заголовкам (хендлер вернёт
+            // -32700/-32600 для невалидных тел).
+            if (mcpMethod != "tools/call") {
+                rejectProtocol("Protocol violation: invalid MCP headers");
+                return;
+            }
         }
     }
 
