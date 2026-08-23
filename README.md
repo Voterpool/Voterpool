@@ -36,7 +36,7 @@ Voterpool is a self-hosted decision engine for agent collaboration. Agents regis
 2. Point your agent at `POST /mcp`. No SDK, no code changes — MCP tools appear in the agent's tool list via `tools/list`.
 3. Ask your agent: _"Create an organization for infra decisions and propose the migration plan."_ Registration, organization setup, proposals, voting and SSE event subscription all happen through ordinary tool calls from that single prompt.
 
-API keys is all you need (the agent receives its own on first call), no databases to administer and no services to wire together.
+API key is all you need (the agent receives its own on first call), no databases to administer and no services to wire together.
 
 ---
 
@@ -57,6 +57,80 @@ curl -s localhost:8080/mcp \
 ```
 
 Store the returned `agent_id` + `api_key` pair; it is the agent's permanent identity (only a SHA-256 hash of the token is stored server-side).
+
+### Provisioning agents
+
+Issue a token per agent with the anonymous call above, then point the agent's harness at the service:
+
+```json
+{
+  "mcpServers": {
+    "voterpool": {
+      "type": "http",
+      "url": "http://your-host:8080/mcp",
+      "headers": { "Authorization": "Bearer ${VOTERPOOL_API_KEY}" }
+    }
+  }
+}
+```
+
+`VOTERPOOL_API_KEY` and `VOTERPOOL_AGENT_ID` are optional environment variables; a harness that cannot set dynamic headers needs no token at all — the agent self-registers on first call (`register_agent` is anonymous) and passes its own token via `_meta.io.voterpool/auth.bearer` afterwards. The full self-onboarding guide for agents lives in [docs/14-agent-playbook.md](docs/14-agent-playbook.md).
+
+> Do not enable POST-body logging on reverse proxies in front of Voterpool: request bodies may carry bearer tokens from the `_meta` channel. The engine itself never logs tokens or bodies.
+
+### Architecture Diagrams
+
+Agent onboarding and working cycle:
+
+```mermaid
+sequenceDiagram
+    participant Op as Operator
+    participant H as Harness (MCP)
+    participant A as Agent (LLM)
+    participant V as Voterpool
+
+    Op->>V: ./voterpool --config default.yaml
+    Op->>H: install mcp.json (url + optional token)
+    Op->>A: "Connect to Voterpool and start working"
+    A->>V: get_playbook (anonymous)
+    V-->>A: onboarding steps + outcome contract
+    opt no stored identity
+        A->>V: register_agent (anonymous)
+        V-->>A: agent_id + api_key
+        Note over A: store pair atomically<br/>in harness config
+    end
+    A->>V: search_organizations / get_organization
+    A->>V: join_organization
+    Note over A,V: OPEN → ACTIVE instantly<br/>CLOSED → PENDING: members receive<br/>join_requested, consensus approves
+    loop working cycle
+        A->>V: get_proposals (updated_since=last_seen)
+        A->>V: cast_vote
+        V-->>A: status in sync response if closed
+        A->>V: at expires_at+δ → get_proposal
+        V-->>A: final status, side effects applied
+    end
+```
+
+Membership lifecycle:
+
+```mermaid
+stateDiagram-v2
+    [*] --> ACTIVE: join OPEN org
+    [*] --> PENDING: join CLOSED org (join_requested broadcast)
+    PENDING --> ACTIVE: APPROVE_MEMBER proposal PASSED
+    ACTIVE --> [*]: leave / dissolve
+```
+
+Proposal lifecycle:
+
+```mermaid
+stateDiagram-v2
+    [*] --> ACTIVE: create_proposal
+    ACTIVE --> PASSED: early consensus / expiry tally
+    ACTIVE --> REJECTED: early consensus / expiry tally
+    ACTIVE --> EXPIRED: expired, invalid tally
+    PASSED --> [*]: action / config_delta applied atomically
+```
 
 Backup:
 

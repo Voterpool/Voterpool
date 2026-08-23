@@ -46,6 +46,33 @@ void MetricsRegistry::addLabelHelp(const std::string& name, const std::string& t
     m.help = help;
 }
 
+void MetricsRegistry::registerDefaults() {
+    static const char* kCounters[] = {
+        "voterpool_actions_applied_total",
+        "voterpool_agents_total",
+        "voterpool_consensus_early_exit_total",
+        "voterpool_db_write_failures_total",
+        "voterpool_mcp_requests_total",
+        "voterpool_orgs_dissolved_total",
+        "voterpool_proposals_closed_total",
+        "voterpool_proposals_created_total",
+        "voterpool_rpc_errors_total",
+        "voterpool_sse_events_sent_total",
+        "voterpool_sse_write_failures_total",
+        "voterpool_ttl_scans_total",
+        "voterpool_votes_cast_total",
+    };
+    for (const char* name : kCounters) addLabelHelp(name, "counter", name);
+    static const char* kGauges[] = {
+        "voterpool_db_healthy",
+        "voterpool_orgs_active",
+        "voterpool_proposals_active",
+        "voterpool_sse_connections",
+        "voterpool_sse_queue_depth",
+    };
+    for (const char* name : kGauges) addLabelHelp(name, "gauge", name);
+}
+
 std::shared_ptr<MetricsRegistry::Series> MetricsRegistry::seriesFor(MetricDef& m, const std::vector<std::pair<std::string, std::string>>& labels) {
     std::string key = labelKey(labels);
     std::lock_guard lock(m.mutex);

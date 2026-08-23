@@ -6,21 +6,16 @@
 using namespace voterpool;
 using namespace voterpool::testing;
 
-static std::shared_ptr<Harness> h;
-
-static void SetUpOnce() {
-    if (!h) h = Harness::create();
-}
 
 TEST(ParamsValidation, RegisterAgentRequiresName) {
-    SetUpOnce();
+    auto h = Harness::create();
     Json::Value out = h->call("register_agent", Json::Value(Json::objectValue), nullptr);
     EXPECT_TRUE(h->isError(out));
     EXPECT_EQ(h->errorCode(out), -32602);
 }
 
 TEST(ParamsValidation, InvalidUuidRejectedWith32602) {
-    SetUpOnce();
+    auto h = Harness::create();
     AgentContext a = h->registerAgent("uuid-checker");
     Harness::ApiKeyStore::instance();
     Json::Value args;
@@ -30,13 +25,13 @@ TEST(ParamsValidation, InvalidUuidRejectedWith32602) {
 }
 
 TEST(ParamsValidation, UnknownToolYieldsMethodNotFound) {
-    SetUpOnce();
+    auto h = Harness::create();
     Json::Value out = h->call("no_such_tool", Json::Value(Json::objectValue), nullptr);
     EXPECT_EQ(h->errorCode(out), -32601);
 }
 
 TEST(ParamsValidation, AuthRequiredForProtectedTools) {
-    SetUpOnce();
+    auto h = Harness::create();
     Json::Value args;
     args["name"] = "Org";
     args["type"] = "OPEN";
@@ -49,7 +44,7 @@ TEST(ParamsValidation, AuthRequiredForProtectedTools) {
 }
 
 TEST(ParamsValidation, BothConfigDeltaAndActionRejected) {
-    SetUpOnce();
+    auto h = Harness::create();
     AgentContext creator = h->registerAgent("dual-proposer");
     Json::Value orgArgs, cfg;
     orgArgs["name"] = "Dual Org";
@@ -78,7 +73,7 @@ TEST(ParamsValidation, BothConfigDeltaAndActionRejected) {
 }
 
 TEST(ParamsValidation, UnknownActionKindRejected) {
-    SetUpOnce();
+    auto h = Harness::create();
     AgentContext creator = h->registerAgent("kind-proposer");
     Json::Value orgArgs, cfg;
     orgArgs["name"] = "Kind Org";

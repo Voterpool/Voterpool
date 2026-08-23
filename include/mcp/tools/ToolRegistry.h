@@ -22,6 +22,7 @@ struct ToolDef {
     const char* description;
     SchemaBuilder schema;
     ToolHandler handler;
+    bool anonymous = false;
 };
 
 std::vector<ToolDef>& catalog();

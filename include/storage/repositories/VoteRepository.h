@@ -7,6 +7,7 @@
 
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace voterpool {
 
@@ -17,6 +18,7 @@ public:
     void put(rocksdb::WriteBatch& batch, const std::string& orgId, const Vote& v);
     bool put(const std::string& orgId, const Vote& v);
     std::optional<Vote> get(const std::string& orgId, const std::string& proposalId, const std::string& agentId);
+    std::vector<Vote> listByProposal(const std::string& orgId, const std::string& proposalId);
 
 private:
     RocksDBWrapper& db_;

@@ -1,5 +1,6 @@
 #include "server/AppContext.h"
 
+#include "server/NativeAuthProvider.h"
 #include "storage/SchemaVersion.h"
 
 #include <spdlog/spdlog.h>
@@ -7,6 +8,7 @@
 namespace voterpool {
 
 void AppContext::init(IClock* clockOverride) {
+    MetricsRegistry::instance().registerDefaults();
     clock = clockOverride ? clockOverride : &SystemClock::instance();
     db = std::make_unique<RocksDBWrapper>(config.storage);
     if (!db->open()) {
@@ -35,6 +37,7 @@ void AppContext::init(IClock* clockOverride) {
     votes = std::make_unique<VoteRepository>(*db, *clock);
     indexes = std::make_unique<IndexRepository>(*db);
     audit = std::make_unique<AuditLogRepository>(*db);
+    authProvider = std::make_unique<NativeAuthProvider>(*agents);
     hub = std::make_unique<SseHub>();
     engine = std::make_unique<ConsensusEngine>(ConsensusEngine::Deps{
         db.get(), orgs.get(), proposals.get(), votes.get(),
