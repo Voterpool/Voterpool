@@ -47,6 +47,29 @@ TEST(StorageRepos, OrgAndMembershipRoundTrip) {
     EXPECT_EQ(orgsOfCreator[0].org_id, orgId);
 }
 
+TEST(StorageRepos, BatchOrgPutVisibleOnlyAfterCommit) {
+    auto h = Harness::create();
+    AgentContext creator = h->registerAgent("batch-org");
+    Json::Value orgOut = createOrg(*h, creator, "Batch Org", "OPEN", orgConfigArgs("MAJORITY", 300));
+    ASSERT_FALSE(h->isError(orgOut));
+    std::string orgId = orgOut["org_id"].asString();
+
+    auto org = h->app->orgs->get(orgId);
+    ASSERT_TRUE(org.has_value());
+    org->name = "Renamed In Batch";
+
+    rocksdb::WriteBatch batch;
+    h->app->orgs->put(batch, *org);
+    auto before = h->app->orgs->get(orgId);
+    ASSERT_TRUE(before.has_value());
+    EXPECT_EQ(before->name, "Batch Org") << "до коммита батч невидим читателям";
+
+    ASSERT_TRUE(h->app->db->commit(batch));
+    auto after = h->app->orgs->get(orgId);
+    ASSERT_TRUE(after.has_value());
+    EXPECT_EQ(after->name, "Renamed In Batch");
+}
+
 TEST(StorageRepos, ProposalAndVoteRoundTripWithAggregates) {
     auto h = Harness::create();
     AgentContext creator = h->registerAgent("prop-creator");

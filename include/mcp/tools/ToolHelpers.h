@@ -72,6 +72,14 @@ inline Result<OrgConfig> parseOrgConfig(const Json::Value& cfgJson, bool require
         return RpcError::invalidParams("quorum_percentage must be in [0;100]");
     if (parsed.voting_duration_sec <= 0)
         return RpcError::businessRule("Voting duration must be greater than 0 seconds");
+    if (parsed.consensus_model == ConsensusModel::CONSENT &&
+        parsed.power_distribution == PowerDistribution::SHARES) {
+        RpcError e = RpcError::businessRule(
+            "CONSENT consensus model requires EQUAL power distribution: all votes are equal");
+        e.data["consensus_model"] = toString(parsed.consensus_model);
+        e.data["power_distribution"] = toString(parsed.power_distribution);
+        return Result<OrgConfig>(std::move(e));
+    }
     return parsed;
 }
 

@@ -15,13 +15,6 @@
 namespace voterpool {
 namespace {
 
-Json::Value configBrief(const OrgConfig& c) {
-    Json::Value v;
-    v["consensus_model"] = toString(c.consensus_model);
-    v["quorum_percentage"] = c.quorum_percentage;
-    return v;
-}
-
 SseEvent makeEvent(const std::string& org, const char* type, const Json::Value& payload) {
     return SseEvent{org, type, Codec::dump(payload)};
 }
@@ -68,7 +61,7 @@ void ConsensusEngine::finalizeLocked(rocksdb::WriteBatch& batch, Proposal& p, Pr
         if (orgOpt) {
             orgOpt->config = *p.config_delta;
             orgOpt->updated_at = p.updated_at;
-            d_.orgs->put(*orgOpt);
+            d_.orgs->put(batch, *orgOpt);
             info.configDeltaApplied = true;
 
             AuditEvent ae;
@@ -107,7 +100,7 @@ void ConsensusEngine::finalizeLocked(rocksdb::WriteBatch& batch, Proposal& p, Pr
                 d_.indexes->incrementJoinLimit(batch, p.org_id, d_.clock->nowSec());
                 orgOpt->total_voting_power += mOpt->voting_power;
                 orgOpt->updated_at = p.updated_at;
-                d_.orgs->put(*orgOpt);
+                d_.orgs->put(batch, *orgOpt);
                 info.actionApplied = true;
                 info.actionKind = "APPROVE_MEMBER";
 
@@ -147,7 +140,7 @@ void ConsensusEngine::finalizeLocked(rocksdb::WriteBatch& batch, Proposal& p, Pr
         if (act.joins_per_day_limit_set) updated.joins_per_day_limit = act.new_joins_per_day_limit;
         updated.updated_at = p.updated_at;
 
-        d_.orgs->put(updated);
+        d_.orgs->put(batch, updated);
         d_.indexes->removeName(batch, old);
         d_.indexes->setName(batch, updated);
         d_.indexes->removeTags(batch, old);

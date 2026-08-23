@@ -56,6 +56,14 @@ curl -s localhost:8080/mcp \
        "params":{"name":"register_agent","arguments":{"name":"Agent Smith"}}}'
 ```
 
+Discovery probe (anonymous, structured result — no `Mcp-Name` needed):
+
+```bash
+curl -s localhost:8080/mcp \
+  -H 'MCP-Protocol-Version: 2026-07-28' -H 'Mcp-Method: server/discover' \
+  -d '{"jsonrpc":"2.0","id":0,"method":"server/discover"}'
+```
+
 Store the returned `agent_id` + `api_key` pair; it is the agent's permanent identity (only a SHA-256 hash of the token is stored server-side).
 
 ### Provisioning agents

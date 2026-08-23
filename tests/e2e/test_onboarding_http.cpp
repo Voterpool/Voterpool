@@ -48,9 +48,8 @@ Json::Value callWith(const std::string& tool, const Json::Value& args,
             body["params"]["_meta"]["io.voterpool/auth"]["bearer"] = metaToken;
         }
     }
-    std::vector<std::pair<std::string, std::string>> headers = {{"MCP-Protocol-Version", "2026-07-28"},
-                                                                {"Mcp-Method", "tools/call"},
-                                                                {"Mcp-Name", tool}};
+    std::vector<std::pair<std::string, std::string>> headers =
+        HttpUtil::mcpHeaders(directMode ? tool : "tools/call", tool);
     for (const auto& kv : extra) headers.push_back(kv);
     return parseJson(mcpPostRaw(body, headers).body);
 }
@@ -129,15 +128,13 @@ TEST(E2eOnboarding, GetPlaybookAnonymousAndModeBEquivalence) {
     ASSERT_FALSE(isError(viaB)) << viaB.toStyledString();
     EXPECT_EQ(unwrap(viaB)["playbook"].asString(), pb["playbook"].asString());
 
-    // Плейбук объявлен в каталоге.
+    // Плейбук объявлен в каталоге (структурный ответ tools/list).
     Json::Value body;
     body["jsonrpc"] = "2.0";
     body["id"] = 2;
     body["method"] = "tools/list";
-    HttpResponse resp = mcpPostRaw(body, {{"MCP-Protocol-Version", "2026-07-28"},
-                                          {"Mcp-Method", "tools/call"},
-                                          {"Mcp-Name", "tools/list"}});
-    Json::Value catalog = unwrap(parseJson(resp.body));
+    HttpResponse resp = mcpPostRaw(body, HttpUtil::mcpHeaders("tools/list"));
+    Json::Value catalog = parseJson(resp.body)["result"];
     bool listed = false;
     for (const auto& t : catalog["tools"]) {
         if (t["name"].asString() == "get_playbook") listed = true;

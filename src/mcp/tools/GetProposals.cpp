@@ -57,6 +57,7 @@ ToolDef defGetProposals() {
                 item["abstain_power"] = p.abstain_power;
                 item["voters_count"] = static_cast<Json::Int64>(p.voters_count);
                 item["total_voting_power_at_creation"] = p.total_voting_power_at_creation;
+                item["eligible_voters_at_creation"] = static_cast<Json::Int64>(p.eligible_voters_at_creation);
                 out.append(item);
             }
             return out;

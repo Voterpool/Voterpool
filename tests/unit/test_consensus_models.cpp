@@ -20,6 +20,14 @@ Proposal makeProposal(ConsensusModel model, int quorum, double T, double y = 0, 
     return p;
 }
 
+Proposal makeConsentProposal(double y = 0, double n = 0, double a = 0, std::int64_t voters = 0,
+                             std::int64_t eligible = 0) {
+    Proposal p = makeProposal(ConsensusModel::CONSENT, 0, static_cast<double>(eligible), y, n, a,
+                              voters);
+    p.eligible_voters_at_creation = eligible;
+    return p;
+}
+
 }  // namespace
 
 TEST(ConsensusMajority, PassesWhenMoreThanHalf) {
@@ -114,28 +122,67 @@ TEST(ConsensusQuorum, FrozenTotalIgnoresNewMembers) {
     EXPECT_FALSE(r.finalStatus.has_value());
 }
 
-TEST(ConsensusConsent, PassesWithSingleYesAndNoObjections) {
+TEST(ConsensusConsent, SingleYesDoesNotCloseWhileCircleIncomplete) {
     ConsentModel m;
-    auto r = m.evaluate(makeProposal(ConsensusModel::CONSENT, 0, 100, 1.0, 0, 2.0, 3), false);
+    auto r = m.evaluate(makeConsentProposal(1.0, 0, 0, 1, 3), false);
+    EXPECT_FALSE(r.finalStatus.has_value());
+}
+
+TEST(ConsensusConsent, FullCircleWithAbstainPassesOnLastVote) {
+    ConsentModel m;
+    auto partial = m.evaluate(makeConsentProposal(1.0, 0, 1.0, 2, 3), false);
+    EXPECT_FALSE(partial.finalStatus.has_value());
+    auto r = m.evaluate(makeConsentProposal(1.0, 0, 2.0, 3, 3), false);
+    ASSERT_TRUE(r.finalStatus.has_value());
     EXPECT_EQ(*r.finalStatus, ProposalStatus::PASSED);
 }
 
 TEST(ConsensusConsent, AnyNoRejectsImmediately) {
     ConsentModel m;
-    auto r = m.evaluate(makeProposal(ConsensusModel::CONSENT, 0, 100, 5, 0.5, 1, 4), false);
+    auto r = m.evaluate(makeConsentProposal(5, 0.5, 1, 4, 10), false);
+    ASSERT_TRUE(r.finalStatus.has_value());
     EXPECT_EQ(*r.finalStatus, ProposalStatus::REJECTED);
+    auto firstVoteNo = m.evaluate(makeConsentProposal(0, 1.0, 0, 1, 7), false);
+    ASSERT_TRUE(firstVoteNo.finalStatus.has_value());
+    EXPECT_EQ(*firstVoteNo.finalStatus, ProposalStatus::REJECTED);
+}
+
+TEST(ConsensusConsent, ExpiredWithPartialTurnoutAndYesIsExpired) {
+    ConsentModel m;
+    auto r = m.evaluate(makeConsentProposal(1.0, 0, 0, 1, 3), true);
+    ASSERT_TRUE(r.finalStatus.has_value());
+    EXPECT_EQ(*r.finalStatus, ProposalStatus::EXPIRED);
 }
 
 TEST(ConsensusConsent, AllAbstainedExpiresAtDeadline) {
     ConsentModel m;
-    auto r = m.evaluate(makeProposal(ConsensusModel::CONSENT, 0, 100, 0, 0, 7, 7), true);
+    auto r = m.evaluate(makeConsentProposal(0, 0, 3, 3, 3), true);
+    ASSERT_TRUE(r.finalStatus.has_value());
+    EXPECT_EQ(*r.finalStatus, ProposalStatus::EXPIRED);
+    auto stillActiveBeforeDeadline =
+        m.evaluate(makeConsentProposal(0, 0, 3, 3, 3), false);
+    EXPECT_FALSE(stillActiveBeforeDeadline.finalStatus.has_value());
+}
+
+TEST(ConsensusConsent, NoVotesAtDeadlineExpires) {
+    ConsentModel m;
+    auto r = m.evaluate(makeConsentProposal(), true);
+    ASSERT_TRUE(r.finalStatus.has_value());
     EXPECT_EQ(*r.finalStatus, ProposalStatus::EXPIRED);
 }
 
-TEST(ConsensusConsent, ZeroPowerVoteCountsHeadOnly) {
+TEST(ConsensusConsent, SingleMemberCirclePassesImmediately) {
     ConsentModel m;
-    auto r = m.evaluate(makeProposal(ConsensusModel::CONSENT, 0, 100, 0, 0, 0, 1), false);
-    EXPECT_FALSE(r.finalStatus.has_value());
+    auto r = m.evaluate(makeConsentProposal(1.0, 0, 0, 1, 1), false);
+    ASSERT_TRUE(r.finalStatus.has_value());
+    EXPECT_EQ(*r.finalStatus, ProposalStatus::PASSED);
+}
+
+TEST(ConsensusConsent, LegacyZeroEligibleKeepsOldBehavior) {
+    ConsentModel m;
+    auto r = m.evaluate(makeConsentProposal(1.0, 0, 0, 1, 0), false);
+    ASSERT_TRUE(r.finalStatus.has_value());
+    EXPECT_EQ(*r.finalStatus, ProposalStatus::PASSED);
 }
 
 TEST(ConsensusFactory, BuildsModelsAndValidatesDecisions) {

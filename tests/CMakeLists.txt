@@ -5,6 +5,8 @@ add_executable(voterpool_unit_tests
     unit/test_params_validation.cpp
     unit/test_config.cpp
     unit/test_onboarding.cpp
+    unit/test_proposal_lock.cpp
+    unit/test_request_log.cpp
 )
 target_link_libraries(voterpool_unit_tests PRIVATE voterpool_core GTest::gtest_main)
 
@@ -13,6 +15,7 @@ add_executable(voterpool_integration_tests
     integration/test_cast_vote_tx.cpp
     integration/test_concurrency.cpp
     integration/test_actions.cpp
+    integration/test_consent_flow.cpp
     integration/test_discovery_index.cpp
     integration/test_ttl_worker.cpp
     integration/test_recovery.cpp

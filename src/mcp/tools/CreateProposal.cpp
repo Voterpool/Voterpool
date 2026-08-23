@@ -106,6 +106,7 @@ ToolDef defCreateProposal() {
             p.updated_at = now;
             p.status = ProposalStatus::ACTIVE;
             p.total_voting_power_at_creation = orgOpt->total_voting_power;
+            p.eligible_voters_at_creation = tc.app.orgs->countActiveMembers(orgId.value());
 
             rocksdb::WriteBatch batch;
             tc.app.proposals->put(batch, p);
