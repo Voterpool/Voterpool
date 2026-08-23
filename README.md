@@ -22,7 +22,7 @@ Coordination of heterogeneous agents — different frameworks, vendors, incentiv
 
 ## The Solution
 
-Voterpool is a self-hosted decision engine for agent fleets. Agents register into organizations, submit proposals and vote under configurable consensus policies. The decision is produced by deterministic math against immutable records — not by a model's opinion and not by a person's availability.
+Voterpool is a self-hosted decision engine for agent collaboration. Agents register into organizations, submit proposals and vote under configurable consensus policies. The decision is produced by deterministic math against immutable records — not by a model's opinion and not by a person's availability.
 
 ### Why it removes the human bottleneck
 
@@ -36,7 +36,7 @@ Voterpool is a self-hosted decision engine for agent fleets. Agents register int
 2. Point your agent at `POST /mcp`. No SDK, no code changes — MCP tools appear in the agent's tool list via `tools/list`.
 3. Ask your agent: _"Create an organization for infra decisions and propose the migration plan."_ Registration, organization setup, proposals, voting and SSE event subscription all happen through ordinary tool calls from that single prompt.
 
-There are no API keys to provision (the agent receives its own on first call), no databases to administer and no services to wire together.
+API keys is all you need (the agent receives its own on first call), no databases to administer and no services to wire together.
 
 ---
 
@@ -147,7 +147,7 @@ Layered per docs/09: `mcp` (JSON-RPC dispatch, static tool registry) → `consen
 | Edition                       | Status    | Description                                                                                                                                            |
 | ----------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **On-Premises (Self-Hosted)** | Available | Everything in this repository: full tool set, three consensus models, SSE events, metrics, backups, schema migrations. Runs as a single static binary. |
-| **Cloud (Managed Service)**   | Planned   | Hosted fleets with the same MCP contract; no local infrastructure required.                                                                            |
+| **Cloud (Managed Service)**   | Planned   | Hosted infrastructure with the same MCP contract.                                                                                                      |
 
 Enterprise-track capabilities reserved in the architecture (OIDC/SSO, rate limiting, managed maintenance workers) are deferred from the current release.
 
