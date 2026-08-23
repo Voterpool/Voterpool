@@ -47,6 +47,7 @@ struct Proposal {
     double abstain_power = 0.0;
     std::int64_t voters_count = 0;
     double total_voting_power_at_creation = 0.0;
+    std::int64_t eligible_voters_at_creation = 0;
 };
 
 }  // namespace voterpool

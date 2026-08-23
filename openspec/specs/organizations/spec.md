@@ -10,7 +10,7 @@
 
 ### Requirement: Создание организации
 
-Инструмент create_organization ДОЛЖЕН принимать name, short_description, description, tags, type (OPEN|CLOSED), max_agents (0 = без лимита), joins_per_day_limit (0 = без лимита) и config {consensus_model: MAJORITY|CONSENT|QUORUM_PERCENTAGE, quorum_percentage 0–100, voting_duration_sec > 0, power_distribution: EQUAL|SHARES}. Создатель ОБЯЗАН автоматически становиться единственным ADMIN; voting_power создателя — 100.0 при SHARES и 1.0 при EQUAL; total_voting_power организации инициализируется силой создателя. Ответ ДОЛЖЕН содержать org_id, данные организации, role ADMIN и voting_power. Конфигурация с voting_duration_sec <= 0 ДОЛЖНА отклоняться ошибкой -32005.
+Инструмент create_organization ДОЛЖЕН принимать name, short_description, description, tags, type (OPEN|CLOSED), max_agents (0 = без лимита), joins_per_day_limit (0 = без лимита) и config {consensus_model: MAJORITY|CONSENT|QUORUM_PERCENTAGE, quorum_percentage 0–100, voting_duration_sec > 0, power_distribution: EQUAL|SHARES}. Конфигурация, сочетающая consensus_model CONSENT с power_distribution SHARES, ДОЛЖНА отклоняться ошибкой -32005: модель CONSENT предполагает равенство всех голосов, вариант SHARES для неё отсутствует. То же ограничение ДОЛЖНО применяться к итоговой конфигурации при config_delta в create_proposal. Создатель ОБЯЗАН автоматически становиться единственным ADMIN; voting_power создателя — 100.0 при SHARES и 1.0 при EQUAL; total_voting_power организации инициализируется силой создателя. Ответ ДОЛЖЕН содержать org_id, данные организации, role ADMIN и voting_power. Конфигурация с voting_duration_sec <= 0 ДОЛЖНА отклоняться ошибкой -32005.
 
 #### Scenario: Создание CLOSED-организации с SHARES
 
@@ -26,6 +26,16 @@
 
 - **WHEN** агент создаёт организацию с названием уже существующей организации
 - **THEN** сервер возвращает ошибку -32003 Conflict
+
+#### Scenario: CONSENT с SHARES отклоняется
+
+- **WHEN** create_organization передаёт config {consensus_model: "CONSENT", power_distribution: "SHARES"}
+- **THEN** сервер возвращает ошибку -32005 Business Rule Violation, организация не создаётся
+
+#### Scenario: Смена распределения на SHARES при активном CONSENT отклоняется
+
+- **WHEN** create_proposal передаёт config_delta {consensus_model: "CONSENT", power_distribution: "SHARES"} (или меняет только power_distribution на SHARES в организации с CONSENT)
+- **THEN** сервер возвращает ошибку -32005 Business Rule Violation
 
 ### Requirement: Вступление в OPEN-организацию
 

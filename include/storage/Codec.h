@@ -224,6 +224,7 @@ inline std::string serializeProposal(const Proposal& p) {
     v["abstain_power"] = p.abstain_power;
     v["voters_count"] = static_cast<Json::Int64>(p.voters_count);
     v["total_voting_power_at_creation"] = p.total_voting_power_at_creation;
+    v["eligible_voters_at_creation"] = static_cast<Json::Int64>(p.eligible_voters_at_creation);
     v["config_delta"] = p.config_delta ? orgConfigToJson(*p.config_delta) : Json::Value(Json::nullValue);
     v["config_at_creation"] = orgConfigToJson(p.config_at_creation);
     return dump(v);
@@ -258,6 +259,7 @@ inline std::optional<Proposal> deserializeProposal(const std::string& s) {
     p.abstain_power = root->get("abstain_power", 0.0).asDouble();
     p.voters_count = root->get("voters_count", 0).asInt64();
     p.total_voting_power_at_creation = root->get("total_voting_power_at_creation", 0.0).asDouble();
+    p.eligible_voters_at_creation = root->get("eligible_voters_at_creation", 0).asInt64();
     const Json::Value& delta = (*root)["config_delta"];
     if (!delta.isNull() && delta.isObject()) {
         bool ok = false;

@@ -76,7 +76,8 @@ public:
     const char* name() const override { return "CONSENT"; }
     Evaluation evaluate(const Proposal& p, bool timeExpired) const override {
         if (p.no_power > kEps) return {ProposalStatus::REJECTED};
-        if (p.yes_power > kEps && p.voters_count > 0) return {ProposalStatus::PASSED};
+        if (p.yes_power > kEps && p.voters_count >= p.eligible_voters_at_creation)
+            return {ProposalStatus::PASSED};
         if (timeExpired) return {ProposalStatus::EXPIRED};
         return {std::nullopt};
     }

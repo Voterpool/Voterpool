@@ -15,6 +15,7 @@ add_executable(voterpool_integration_tests
     integration/test_cast_vote_tx.cpp
     integration/test_concurrency.cpp
     integration/test_actions.cpp
+    integration/test_consent_flow.cpp
     integration/test_discovery_index.cpp
     integration/test_ttl_worker.cpp
     integration/test_recovery.cpp
