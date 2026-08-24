@@ -5,6 +5,7 @@
 #include "core/IClock.h"
 #include "core/Metrics.h"
 #include "storage/Keys.h"
+#include "storage/OrgNameRegistry.h"
 #include "storage/RocksDBWrapper.h"
 #include "storage/repositories/AuditLogRepository.h"
 #include "storage/repositories/IndexRepository.h"
@@ -67,14 +68,18 @@ void ConsensusEngine::finalizeLocked(rocksdb::WriteBatch& batch, Proposal& p, Pr
                                      ClosedInfo& info) {
     p.status = finalStatus;
     p.updated_at = d_.clock->nowSec();
-    d_.proposals->put(batch, p);
     d_.proposals->removeActiveIndex(batch, p);
 
     info.closed = true;
     info.status = finalStatus;
 
+    // ЗаписьProposal ровно одна — в конце функции: флаги исхода
+    // (p.config_delta_applied / p.action_applied) выставляются эффектами.
+    auto finish = [&] { d_.proposals->put(batch, p); };
+
     if (finalStatus != ProposalStatus::PASSED) {
         MetricsRegistry::instance().incCounter("voterpool_consensus_early_exit_total", {{"consensus_model", toString(p.config_at_creation.consensus_model)}});
+        finish();
         return;
     }
 
@@ -83,36 +88,38 @@ void ConsensusEngine::finalizeLocked(rocksdb::WriteBatch& batch, Proposal& p, Pr
     // порядок proposal → organization (design D2/D5).
     auto orgOpt = d_.orgs->get(p.org_id);
     if (!orgOpt || orgOpt->status == OrgStatus::DISSOLVED) {
-        // Роспуск зафиксировался раньше: эффекты PASSED не применяются.
+        // Роспуск зафиксировался раньше: эффекты PASSED не применяются,
+        // флаги исхода остаются false.
+        finish();
         return;
     }
 
     if (p.config_delta) {
-        if (orgOpt) {
-            orgOpt->config = *p.config_delta;
-            orgOpt->updated_at = p.updated_at;
-            d_.orgs->put(batch, *orgOpt);
-            info.configDeltaApplied = true;
+        orgOpt->config = *p.config_delta;
+        orgOpt->updated_at = p.updated_at;
+        d_.orgs->put(batch, *orgOpt);
+        info.configDeltaApplied = true;
+        p.config_delta_applied = true;
 
-            AuditEvent ae;
-            ae.action = "CONFIG_CHANGED";
-            ae.org_id = p.org_id;
-            ae.agent_id = "";
-            ae.by_agent = p.creator_id;
-            ae.proposal_id = p.proposal_id;
-            ae.created_at = d_.clock->nowMilli();
-            d_.audit->append(batch, p.org_id, ae);
-        }
+        AuditEvent ae;
+        ae.action = "CONFIG_CHANGED";
+        ae.org_id = p.org_id;
+        ae.agent_id = "";
+        ae.by_agent = p.creator_id;
+        ae.proposal_id = p.proposal_id;
+        ae.created_at = d_.clock->nowMilli();
+        d_.audit->append(batch, p.org_id, ae);
     }
 
-    if (!p.action) return;
-
-    MetricsRegistry::instance().incCounter("voterpool_actions_applied_total", {{"kind", toString(p.action->kind)}});
+    if (!p.action) {
+        finish();
+        return;
+    }
 
     if (p.action->kind == ActionKind::APPROVE_MEMBER) {
         const std::string targetId = p.action->target_agent_id;
         auto mOpt = d_.orgs->getMembership(p.org_id, targetId);
-        if (mOpt && mOpt->status == MemberStatus::PENDING && orgOpt) {
+        if (mOpt && mOpt->status == MemberStatus::PENDING) {
             bool limitsOk = true;
             if (orgOpt->max_agents > 0) {
                 std::int64_t activeCount = d_.orgs->countActiveMembers(p.org_id);
@@ -133,6 +140,10 @@ void ConsensusEngine::finalizeLocked(rocksdb::WriteBatch& batch, Proposal& p, Pr
                 d_.orgs->put(batch, *orgOpt);
                 info.actionApplied = true;
                 info.actionKind = "APPROVE_MEMBER";
+                p.action_applied = true;
+
+                // Метрика считает только фактические применения действия.
+                MetricsRegistry::instance().incCounter("voterpool_actions_applied_total", {{"kind", "APPROVE_MEMBER"}});
 
                 AuditEvent ae;
                 ae.action = "MEMBER_ACTIVATED";
@@ -154,10 +165,11 @@ void ConsensusEngine::finalizeLocked(rocksdb::WriteBatch& batch, Proposal& p, Pr
                 d_.emit(makeEvent(p.org_id, "member_joined", ev));
             }
         }
+        finish();
         return;
     }
 
-    if (p.action->kind == ActionKind::UPDATE_ORG_INFO && orgOpt) {
+    if (p.action->kind == ActionKind::UPDATE_ORG_INFO) {
         Organization updated = *orgOpt;
         const ProposalAction& act = *p.action;
         Organization old = *orgOpt;
@@ -171,14 +183,15 @@ void ConsensusEngine::finalizeLocked(rocksdb::WriteBatch& batch, Proposal& p, Pr
         updated.updated_at = p.updated_at;
 
         d_.orgs->put(batch, updated);
-        d_.indexes->removeName(batch, old);
-        d_.indexes->setName(batch, updated);
         d_.indexes->removeTags(batch, old);
         d_.indexes->setTags(batch, updated);
         d_.indexes->removeCategory(batch, old);
         d_.indexes->setCategory(batch, updated);
         info.actionApplied = true;
         info.actionKind = "UPDATE_ORG_INFO";
+        p.action_applied = true;
+
+        MetricsRegistry::instance().incCounter("voterpool_actions_applied_total", {{"kind", "UPDATE_ORG_INFO"}});
 
         AuditEvent ae;
         ae.action = "ORG_INFO_UPDATED";
@@ -189,6 +202,7 @@ void ConsensusEngine::finalizeLocked(rocksdb::WriteBatch& batch, Proposal& p, Pr
         ae.created_at = d_.clock->nowMilli();
         d_.audit->append(batch, p.org_id, ae);
     }
+    finish();
 }
 
 Result<VoteReceipt> ConsensusEngine::castVote(const std::string& agentId, const std::string& proposalId,
@@ -278,6 +292,10 @@ Result<VoteReceipt> ConsensusEngine::castVote(const std::string& agentId, const 
     }
     orgLock = KeyedMutexRegistry::Guard();
 
+    if (closed.actionApplied && closed.actionKind == "UPDATE_ORG_INFO" && p.action && d_.orgNames) {
+        d_.orgNames->rename(p.org_id, p.action->new_name);
+    }
+
     MetricsRegistry::instance().incCounter("voterpool_votes_cast_total", {{"decision", toString(decision)}});
     MetricsRegistry::instance().setGauge("voterpool_proposals_active", {}, d_.proposals->countActiveGauge());
 
@@ -350,6 +368,10 @@ bool ConsensusEngine::closeProposalByTimer(const std::string& orgId, const std::
     }
     orgLock = KeyedMutexRegistry::Guard();
     d_.locks->forget(proposalId);
+
+    if (info.actionApplied && info.actionKind == "UPDATE_ORG_INFO" && p.action && d_.orgNames) {
+        d_.orgNames->rename(p.org_id, p.action->new_name);
+    }
 
     if (info.closed) {
         MetricsRegistry::instance().incCounter("voterpool_proposals_closed_total", {{"final_status", toString(info.status)}});
@@ -435,7 +457,6 @@ Result<DissolveOutcome> ConsensusEngine::dissolveOrganization(const std::string&
             updated.updated_at = d_.clock->nowSec();
             d_.orgs->put(batch, updated);
             d_.indexes->moveFeedToDissolved(batch, updated);
-            d_.indexes->removeName(batch, updated);
             d_.indexes->removeTags(batch, updated);
             d_.indexes->removeCategory(batch, updated);
 
@@ -448,6 +469,8 @@ Result<DissolveOutcome> ConsensusEngine::dissolveOrganization(const std::string&
             d_.audit->append(batch, orgId, ae);
 
             if (!d_.db->commit(batch)) return RpcError::internal("Storage write failed");
+
+            if (d_.orgNames) d_.orgNames->erase(orgId);
 
             for (const auto& id : closedIds) {
                 d_.locks->forget(id);

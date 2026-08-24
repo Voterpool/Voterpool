@@ -38,6 +38,10 @@ struct Proposal {
     OrgConfig config_at_creation;
 
     ProposalStatus status = ProposalStatus::ACTIVE;
+    // Исход применения эффектов при закрытии (design D4): проставляются
+    // в момент финализации; у записей до введения поля читаются как false.
+    bool config_delta_applied = false;
+    bool action_applied = false;
     std::int64_t created_at = 0;
     std::int64_t expires_at = 0;
     std::int64_t updated_at = 0;

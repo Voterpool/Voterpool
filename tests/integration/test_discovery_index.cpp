@@ -91,6 +91,75 @@ TEST(Discovery, DissolvedExcludedFromAllResults) {
     EXPECT_EQ(ids(h->call("search_organizations", q, &viewer)).size(), 0u);
 }
 
+TEST(Discovery, SubstringMidNameAndCaseInsensitiveQueries) {
+    auto h = Harness::create();
+    AgentContext a = h->registerAgent("substr-searcher");
+
+    // Канонический сценарий спеки: query="council" находит только "AI Council".
+    Json::Value councilOut = createOrg(*h, a, "AI Council", "OPEN", orgConfigArgs("MAJORITY", 600));
+    ASSERT_FALSE(h->isError(councilOut));
+    Json::Value guildOut = createOrg(*h, a, "Dev Guild", "OPEN", orgConfigArgs("MAJORITY", 600));
+    ASSERT_FALSE(h->isError(guildOut));
+    std::string councilId = councilOut["org_id"].asString();
+
+    Json::Value q;
+    q["query"] = "council";
+    auto got = ids(h->call("search_organizations", q, &a));
+    ASSERT_EQ(got.size(), 1u);
+    EXPECT_EQ(got[0], councilId);
+
+    // Подстрока в середине и в конце названия.
+    Json::Value longOut = createOrg(*h, a, "Blockchain Council of Research", "OPEN",
+                                    orgConfigArgs("MAJORITY", 600));
+    ASSERT_FALSE(h->isError(longOut));
+
+    q["query"] = "council of res";
+    got = ids(h->call("search_organizations", q, &a));
+    ASSERT_EQ(got.size(), 1u);
+    EXPECT_EQ(got[0], longOut["org_id"].asString());
+
+    q["query"] = "search";
+    got = ids(h->call("search_organizations", q, &a));
+    ASSERT_EQ(got.size(), 1u);
+    EXPECT_EQ(got[0], longOut["org_id"].asString());
+
+    // Регистронезависимость в обе стороны.
+    q["query"] = "COUNCIL";
+    EXPECT_EQ(ids(h->call("search_organizations", q, &a)).size(), 2u);
+}
+
+TEST(Discovery, RegistrySurvivesRestart) {
+    std::string dir = tempDbDir();
+    AppConfig cfg;
+    cfg.storage.path = dir;
+    auto h = Harness::create(cfg);
+    std::string orgId;
+    {
+        AgentContext a = h->registerAgent("restart-admin");
+        Json::Value out = createOrg(*h, a, "Persistent Council", "OPEN", orgConfigArgs("MAJORITY", 600));
+        ASSERT_FALSE(h->isError(out));
+        orgId = out["org_id"].asString();
+
+        if (h->app->workers) h->app->workers->stop();
+        h->app->workers.reset();
+        h->app->engine.reset();
+        h->app->hub.reset();
+        h->app->db->close();
+        h->app.reset();
+    }
+
+    AppConfig reopen = cfg;
+    AppContext restarted;
+    restarted.config = reopen;
+    restarted.init(nullptr);
+
+    auto hit = restarted.orgNames->matchQuery("council");
+    ASSERT_EQ(hit.size(), 1u);
+    EXPECT_TRUE(hit.count(orgId));
+    ASSERT_TRUE(restarted.orgNames->findActiveByName("persistent council").has_value());
+    restarted.db->close();
+}
+
 TEST(Discovery, CursorPaginationPagesAreDisjointAndComplete) {
     auto h = Harness::create();
     AgentContext a = h->registerAgent("pager");

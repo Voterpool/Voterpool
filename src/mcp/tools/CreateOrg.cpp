@@ -40,21 +40,11 @@ ToolDef defCreateOrganization() {
             auto cfg = parseOrgConfig(args["config"], true);
             if (!cfg.ok()) return cfg.error();
 
-            {
-                auto it = tc.app.db->newIterator("cf_indexes");
-                std::string q = Keys::nameLower(name.value());
-                for (it->Seek("org_name:"); it->Valid(); it->Next()) {
-                    std::string k = it->key().ToString();
-                    if (k.rfind("org_name:", 0) != 0) break;
-                    std::string rest = k.substr(std::string("org_name:").size());
-                    size_t colon = rest.rfind(':');
-                    if (rest.substr(0, colon) == q) {
-                        auto org = tc.app.orgs->get(rest.substr(colon + 1));
-                        if (org && org->status == OrgStatus::ACTIVE) {
-                            return RpcError::conflict("Organization with this name already exists");
-                        }
-                    }
-                }
+            // Дубликат имени: O(1) lookup по резидентному реестру (только ACTIVE).
+            if (auto dup = tc.app.orgNames->findActiveByName(Keys::nameLower(name.value()))) {
+                RpcError e = RpcError::conflict("Organization with this name already exists");
+                e.data["org_id"] = *dup;
+                return e;
             }
 
             Organization org;
@@ -96,11 +86,11 @@ ToolDef defCreateOrganization() {
             db_putOrg(tc.app, batch, org);
             tc.app.orgs->putMembership(batch, creator);
             tc.app.indexes->addFeedActive(batch, org);
-            tc.app.indexes->setName(batch, org);
             tc.app.indexes->setTags(batch, org);
             tc.app.indexes->setCategory(batch, org);
             if (!tc.app.db->commit(batch)) return RpcError::internal("Storage write failed");
 
+            tc.app.orgNames->add(org.org_id, Keys::nameLower(org.name));
             refreshOrgGauges(tc.app);
 
             Json::Value out;

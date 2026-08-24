@@ -60,7 +60,7 @@ ToolDef defSearchOrganizations() {
             std::set<std::string> candidates;
             bool haveCandidateSet = false;
             if (!query.empty()) {
-                candidates = tc.app.indexes->scanNameQuery(query, 5000);
+                candidates = tc.app.orgNames->matchQuery(query);
                 haveCandidateSet = true;
             }
             for (const auto& t : tags) {

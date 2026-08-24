@@ -31,10 +31,6 @@ public:
     void removeTags(rocksdb::WriteBatch& batch, const Organization& org);
     std::set<std::string> scanTag(const std::string& tag);
 
-    void setName(rocksdb::WriteBatch& batch, const Organization& org);
-    void removeName(rocksdb::WriteBatch& batch, const Organization& org);
-    std::set<std::string> scanNameQuery(const std::string& queryLowered, size_t maxScan);
-
     void setCategory(rocksdb::WriteBatch& batch, const Organization& org);
     void removeCategory(rocksdb::WriteBatch& batch, const Organization& org);
     std::set<std::string> scanCategory(const std::string& categoryLowered);

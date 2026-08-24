@@ -69,9 +69,6 @@ inline std::string nameLower(std::string name) {
     for (auto& c : name) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     return name;
 }
-inline std::string orgName(const std::string& nameLowered, const std::string& orgId) {
-    return "org_name:" + nameLowered + ":" + orgId;
-}
 inline std::string category(const std::string& categoryLowered, const std::string& orgId) {
     return "category:" + categoryLowered + ":" + orgId;
 }

@@ -8,6 +8,7 @@
 #include "server/SseHub.h"
 #include "server/Workers.h"
 #include "storage/RocksDBWrapper.h"
+#include "storage/OrgNameRegistry.h"
 #include "storage/repositories/AgentRepository.h"
 #include "storage/repositories/AuditLogRepository.h"
 #include "storage/repositories/IndexRepository.h"
@@ -29,6 +30,7 @@ struct AppContext {
     std::unique_ptr<VoteRepository> votes;
     std::unique_ptr<IndexRepository> indexes;
     std::unique_ptr<AuditLogRepository> audit;
+    std::unique_ptr<OrgNameRegistry> orgNames;
     std::unique_ptr<IAuthProvider> authProvider;
     ProposalLockRegistry locks;
     KeyedMutexRegistry orgLocks;

@@ -64,7 +64,7 @@ ToolDef defCreateProposal() {
             p.config_at_creation = orgOpt->config;
 
             if (hasDelta) {
-                auto delta = parseOrgConfig(args["config_delta"], true);
+                auto delta = parseOrgConfig(args["config_delta"], true, &orgOpt->config);
                 if (!delta.ok()) return delta.error();
                 p.config_delta = delta.value();
                 p.type = ProposalType::STANDARD;

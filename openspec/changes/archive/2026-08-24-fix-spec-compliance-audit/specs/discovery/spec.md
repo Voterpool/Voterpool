@@ -1,12 +1,4 @@
-# Discovery (discovery)
-
-## Purpose
-
-Discovery: самостоятельный поиск агентами организаций — лента с курсорной пагинацией, поиск по названию, тегам (AND) и категории; публичные профили; DISSOLVED-организации исключены из выдачи (FR-1.7).
-
-Область действия: редакция **On-Premises (Self-Hosted)**. Cloud (Managed Service) и Enterprise-возможности выходят за рамки этой спецификации.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Поиск и лента организаций
 

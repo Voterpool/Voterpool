@@ -7,6 +7,8 @@ add_executable(voterpool_unit_tests
     unit/test_onboarding.cpp
     unit/test_proposal_lock.cpp
     unit/test_request_log.cpp
+    unit/test_org_name_registry.cpp
+    unit/test_codec.cpp
 )
 target_link_libraries(voterpool_unit_tests PRIVATE voterpool_core GTest::gtest_main)
 
@@ -24,6 +26,7 @@ add_executable(voterpool_integration_tests
     integration/test_checkpoint_restore.cpp
     integration/test_degraded_mode.cpp
     integration/test_onboarding_flow.cpp
+    integration/test_config_delta.cpp
 )
 target_link_libraries(voterpool_integration_tests PRIVATE voterpool_core GTest::gtest_main)
 

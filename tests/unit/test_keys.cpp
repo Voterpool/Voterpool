@@ -28,7 +28,6 @@ TEST(Keys, TagsAndNamesAndCategoriesLowercased) {
     EXPECT_EQ(Keys::tagLower("InfRa"), "infra");
     EXPECT_EQ(Keys::nameLower("AI Council"), "ai council");
     EXPECT_EQ(Keys::tag("infra", "o"), "tag:infra:o");
-    EXPECT_EQ(Keys::orgName("ai council", "o"), "org_name:ai council:o");
     EXPECT_EQ(Keys::category(Keys::nameLower("Governance"), "o"), std::string("category:governance:o"));
 }
 
