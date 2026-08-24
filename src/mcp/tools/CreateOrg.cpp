@@ -20,6 +20,7 @@ ToolDef defCreateOrganization() {
                  {"short_description", schemaString()},
                  {"description", schemaString()},
                  {"tags", schemaArrayOf("string")},
+                 {"category", schemaString()},
                  {"type", schemaString()},
                  {"max_agents", schemaInteger()},
                  {"joins_per_day_limit", schemaInteger()},
@@ -35,6 +36,10 @@ ToolDef defCreateOrganization() {
             if (typeStr.value() == "OPEN") orgType = OrgType::OPEN;
             else if (typeStr.value() == "CLOSED") orgType = OrgType::CLOSED;
             else return RpcError::invalidParams("type must be OPEN or CLOSED");
+
+            // Категория опциональна; передана — только строкой (-32602).
+            if (args.isMember("category") && !args["category"].isString())
+                return RpcError::invalidParams("category must be a string");
 
             bool configRequired = args.isMember("config");
             auto cfg = parseOrgConfig(args["config"], true);
@@ -56,6 +61,8 @@ ToolDef defCreateOrganization() {
                 org.description = args["description"].asString();
             if (args.isMember("tags") && args["tags"].isArray())
                 org.tags = Codec::tagsFromJson(args["tags"]);
+            if (args.isMember("category") && args["category"].isString())
+                org.category = args["category"].asString();
             org.type = orgType;
             if (args.isMember("max_agents")) {
                 if (!args["max_agents"].isIntegral()) return RpcError::invalidParams("max_agents must be an integer");
@@ -98,6 +105,7 @@ ToolDef defCreateOrganization() {
             out["name"] = org.name;
             out["short_description"] = org.short_description;
             out["tags"] = Codec::tagsToJson(org.tags);
+            out["category"] = org.category;
             out["type"] = toString(org.type);
             out["role"] = "ADMIN";
             out["voting_power"] = creator.voting_power;

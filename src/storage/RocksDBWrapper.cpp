@@ -2,6 +2,7 @@
 
 #include "core/Metrics.h"
 
+#include <rocksdb/statistics.h>
 #include <spdlog/spdlog.h>
 
 #include <cstdio>
@@ -9,10 +10,55 @@
 
 namespace voterpool {
 
+namespace {
+
+struct RocksdbTickerExport {
+    rocksdb::Tickers ticker;
+    const char* metric;
+};
+
+const RocksdbTickerExport kRocksdbExports[] = {
+    {rocksdb::BLOCK_CACHE_HIT, "voterpool_rocksdb_block_cache_hits_total"},
+    {rocksdb::BLOCK_CACHE_MISS, "voterpool_rocksdb_block_cache_misses_total"},
+    {rocksdb::WAL_FILE_SYNCED, "voterpool_rocksdb_wal_synced_total"},
+    {rocksdb::FLUSH_WRITE_BYTES, "voterpool_rocksdb_flush_write_bytes_total"},
+    {rocksdb::COMPACT_READ_BYTES, "voterpool_rocksdb_compaction_read_bytes_total"},
+    {rocksdb::COMPACT_WRITE_BYTES, "voterpool_rocksdb_compaction_write_bytes_total"},
+};
+
+struct RocksdbPropertyExport {
+    std::string property;  // имя свойства для DB::GetIntProperty (Slice)
+    const char* metric;
+};
+
+const RocksdbPropertyExport kRocksdbPropertyExports[] = {
+    {rocksdb::DB::Properties::kBlockCacheUsage, "voterpool_rocksdb_block_cache_usage"},
+    {rocksdb::DB::Properties::kBlockCacheCapacity, "voterpool_rocksdb_block_cache_capacity"},
+    {rocksdb::DB::Properties::kEstimatePendingCompactionBytes,
+     "voterpool_rocksdb_estimate_pending_compaction_bytes"},
+};
+
+}  // namespace
+
 RocksDBWrapper::RocksDBWrapper(const StorageConfig& cfg, const std::string& dirOverride)
     : cfg_(cfg), dir_(dirOverride.empty() ? cfg.path : dirOverride) {}
 
 RocksDBWrapper::~RocksDBWrapper() { close(); }
+
+void RocksDBWrapper::publishStatisticsToRegistry() {
+    if (!db_ || !options_.statistics) return;
+    rocksdb::Statistics* stats = options_.statistics.get();
+    MetricsRegistry& registry = MetricsRegistry::instance();
+    for (const auto& exportEntry : kRocksdbExports) {
+        registry.setGauge(exportEntry.metric, {},
+                          static_cast<std::int64_t>(stats->getTickerCount(exportEntry.ticker)));
+    }
+    for (const auto& exportEntry : kRocksdbPropertyExports) {
+        std::uint64_t value = 0;
+        if (db_->GetIntProperty(exportEntry.property, &value)) {
+            registry.setGauge(exportEntry.metric, {}, static_cast<std::int64_t>(value));
+        }
+    }}
 
 bool RocksDBWrapper::open() {
     rocksdb::Options opts;
@@ -24,6 +70,8 @@ bool RocksDBWrapper::open() {
     else if (cfg_.log_level == "INFO") opts.info_log_level = rocksdb::InfoLogLevel::INFO_LEVEL;
     else if (cfg_.log_level == "ERROR") opts.info_log_level = rocksdb::InfoLogLevel::ERROR_LEVEL;
     else opts.info_log_level = rocksdb::InfoLogLevel::WARN_LEVEL;
+
+    opts.statistics = rocksdb::CreateDBStatistics();
     options_ = opts;
 
     std::vector<std::string> existing;

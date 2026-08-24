@@ -199,3 +199,93 @@ TEST(Discovery, LimitBoundsValidated) {
     q["limit"] = 101;
     EXPECT_EQ(h->errorCode(h->call("search_organizations", q, &a)), -32602);
 }
+
+// organizations «Category индексируется сразу при создании»: организация
+// видна фильтру категории сразу после create_organization, без голосований.
+TEST(Discovery, CategoryIndexedImmediatelyAtCreation) {
+    auto h = Harness::create();
+    AgentContext a = h->registerAgent("category-admin");
+
+    Json::Value args;
+    args["name"] = "Governance Council";
+    args["type"] = "OPEN";
+    args["category"] = "Governance";
+    args["config"] = orgConfigArgs("MAJORITY", 600);
+    Json::Value out = h->call("create_organization", args, &a);
+    ASSERT_FALSE(h->isError(out)) << out.toStyledString();
+    std::string orgId = out["org_id"].asString();
+    EXPECT_EQ(out["category"].asString(), "Governance");
+
+    Json::Value profArgs;
+    profArgs["org_id"] = orgId;
+    Json::Value prof = h->call("get_organization", profArgs, &a);
+    ASSERT_FALSE(h->isError(prof));
+    EXPECT_EQ(prof["category"].asString(), "Governance");
+
+    Json::Value q;
+    q["category"] = "governance";
+    auto got = ids(h->call("search_organizations", q, &a));
+    ASSERT_EQ(got.size(), 1u);
+    EXPECT_EQ(got[0], orgId);
+}
+
+TEST(Discovery, CategoryFilterIsCaseInsensitive) {
+    auto h = Harness::create();
+    AgentContext a = h->registerAgent("case-admin");
+
+    Json::Value args;
+    args["name"] = "Infra Alliance";
+    args["type"] = "OPEN";
+    args["category"] = "Infra";
+    args["config"] = orgConfigArgs("MAJORITY", 600);
+    ASSERT_FALSE(h->isError(h->call("create_organization", args, &a)));
+
+    Json::Value upper, lower;
+    upper["category"] = "INFRA";
+    lower["category"] = "infra";
+    auto byUpper = ids(h->call("search_organizations", upper, &a));
+    auto byLower = ids(h->call("search_organizations", lower, &a));
+    ASSERT_EQ(byUpper.size(), 1u);
+    EXPECT_EQ(byUpper, byLower);
+}
+
+TEST(Discovery, OrgWithoutCategoryStaysOutOfCategorySearch) {
+    auto h = Harness::create();
+    AgentContext a = h->registerAgent("nocat-admin");
+
+    Json::Value out = createOrg(*h, a, "Plain Org", "OPEN", orgConfigArgs("MAJORITY", 600));
+    ASSERT_FALSE(h->isError(out));
+    std::string orgId = out["org_id"].asString();
+    EXPECT_EQ(out["category"].asString(), "");
+
+    Json::Value profArgs;
+    profArgs["org_id"] = orgId;
+    EXPECT_EQ(h->call("get_organization", profArgs, &a)["category"].asString(), "");
+
+    Json::Value q;
+    q["category"] = "governance";
+    EXPECT_EQ(ids(h->call("search_organizations", q, &a)).size(), 0u);
+
+    // Лента без фильтров по-прежнему видит организацию.
+    Json::Value none;
+    EXPECT_EQ(ids(h->call("search_organizations", none, &a)).size(), 1u);
+}
+
+TEST(Discovery, CategoryMustBeString) {
+    auto h = Harness::create();
+    AgentContext a = h->registerAgent("badcat-admin");
+
+    Json::Value args;
+    args["name"] = "Bad Cat Org";
+    args["type"] = "OPEN";
+    Json::Value cats(Json::arrayValue);
+    cats.append("governance");
+    args["category"] = cats;
+    args["config"] = orgConfigArgs("MAJORITY", 600);
+    Json::Value arrayCat = h->call("create_organization", args, &a);
+    EXPECT_EQ(h->errorCode(arrayCat), -32602);
+
+    args["category"] = 42;
+    Json::Value intCat = h->call("create_organization", args, &a);
+    EXPECT_EQ(h->errorCode(intCat), -32602);
+}

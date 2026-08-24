@@ -38,6 +38,15 @@ const MetricCatalogEntry kCatalog[] = {
     {"voterpool_ttl_scan_duration_seconds", "histogram", "TTL active-proposal index scan duration"},
     {"voterpool_ttl_scans_total", "counter", "TTL worker scan cycles"},
     {"voterpool_votes_cast_total", "counter", "Accepted votes by decision"},
+    {"voterpool_rocksdb_block_cache_usage", "gauge", "RocksDB block cache usage in bytes"},
+    {"voterpool_rocksdb_block_cache_capacity", "gauge", "RocksDB block cache capacity in bytes"},
+    {"voterpool_rocksdb_block_cache_hits_total", "gauge", "RocksDB block cache hits"},
+    {"voterpool_rocksdb_block_cache_misses_total", "gauge", "RocksDB block cache misses"},
+    {"voterpool_rocksdb_estimate_pending_compaction_bytes", "gauge", "Estimated bytes pending compaction"},
+    {"voterpool_rocksdb_wal_synced_total", "gauge", "WAL file syncs"},
+    {"voterpool_rocksdb_flush_write_bytes_total", "gauge", "Bytes written by memtable flushes"},
+    {"voterpool_rocksdb_compaction_read_bytes_total", "gauge", "Bytes read by compactions"},
+    {"voterpool_rocksdb_compaction_write_bytes_total", "gauge", "Bytes written by compactions"},
 };
 
 std::string metricHelp(const std::string& name) {

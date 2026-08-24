@@ -1,6 +1,10 @@
 #include "core/Metrics.h"
+#include "storage/RocksDBWrapper.h"
+#include "tests/common/Harness.h"
 
 #include <gtest/gtest.h>
+
+#include <rocksdb/write_batch.h>
 
 #include <string>
 
@@ -69,4 +73,54 @@ TEST(MetricsExposition, HistogramsGetHelpBeforeType) {
     ASSERT_NE(help, std::string::npos);
     ASSERT_NE(type, std::string::npos);
     EXPECT_LT(help, type);
+}
+
+// observability: семейства voterpool_rocksdb_* появляются в выдаче после
+// публикации тикеров, с HELP перед TYPE, без лейблов и с неотрицательными
+// значениями (design D4).
+TEST(MetricsExposition, RocksdbFamiliesExposedWithoutLabels) {
+    MetricsRegistry::instance().resetForTests();
+    MetricsRegistry::instance().registerDefaults();
+
+    static const char* kRocksdbFamilies[] = {
+        "voterpool_rocksdb_block_cache_usage",
+        "voterpool_rocksdb_block_cache_capacity",
+        "voterpool_rocksdb_block_cache_hits_total",
+        "voterpool_rocksdb_block_cache_misses_total",
+        "voterpool_rocksdb_estimate_pending_compaction_bytes",
+        "voterpool_rocksdb_wal_synced_total",
+        "voterpool_rocksdb_flush_write_bytes_total",
+        "voterpool_rocksdb_compaction_read_bytes_total",
+        "voterpool_rocksdb_compaction_write_bytes_total",
+    };
+
+    StorageConfig cfg;
+    cfg.path = voterpool::testing::tempDbDir();
+    RocksDBWrapper db(cfg);
+    ASSERT_TRUE(db.open());
+    {
+        rocksdb::WriteBatch batch;
+        db.put(batch, "default", "probe-key", "probe-value");
+        ASSERT_TRUE(db.commit(batch));
+    }
+    db.publishStatisticsToRegistry();
+
+    const std::string out = MetricsRegistry::instance().expose();
+    for (const char* family : kRocksdbFamilies) {
+        const std::string name(family);
+        const auto help = posOf(out, "# HELP " + name + " ");
+        const auto type = posOf(out, "# TYPE " + name + " ");
+        ASSERT_NE(help, std::string::npos) << "missing HELP for " << name;
+        ASSERT_NE(type, std::string::npos) << "missing TYPE for " << name;
+        EXPECT_LT(help, type) << "HELP must precede TYPE for " << name;
+        EXPECT_EQ(out.find(name + "{"), std::string::npos)
+            << name << " must be label-free";
+        const auto sample = posOf(out, "\n" + name + " ");
+        ASSERT_NE(sample, std::string::npos) << "missing sample for " << name;
+        const std::size_t valueStart = sample + name.size() + 2;
+        const std::size_t valueEnd = out.find('\n', valueStart);
+        EXPECT_GE(std::stoll(out.substr(valueStart, valueEnd - valueStart)), 0)
+            << name << " value must be non-negative";
+    }
+    db.close();
 }

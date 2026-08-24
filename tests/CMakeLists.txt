@@ -15,6 +15,7 @@ target_link_libraries(voterpool_unit_tests PRIVATE voterpool_core GTest::gtest_m
 
 add_executable(voterpool_integration_tests
     integration/test_storage_repos.cpp
+    integration/test_audit_log.cpp
     integration/test_cast_vote_tx.cpp
     integration/test_concurrency.cpp
     integration/test_actions.cpp

@@ -93,6 +93,7 @@ void VoterpoolApp::registerRoutes() {
     drogon::app().registerHandler(
         ctx_.config.metrics.path,
         [this](const drogon::HttpRequestPtr&, std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
+            if (ctx_.db && ctx_.db->isOpen()) ctx_.db->publishStatisticsToRegistry();
             auto resp = drogon::HttpResponse::newHttpResponse();
             resp->setStatusCode(drogon::k200OK);
             resp->setContentTypeString("text/plain; version=0.0.4");

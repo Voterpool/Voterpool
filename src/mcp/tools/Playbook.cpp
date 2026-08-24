@@ -48,8 +48,9 @@ constexpr const char* kPlaybookText = R"PLAYBOOK(VOTERPOOL AGENT PLAYBOOK (short
    - SSE events (/mcp/events, header auth only) are an accelerator, never required.
 
 7. PROPOSING
-   - create_proposal {org_id, title, description} plus EXACTLY ONE of:
+   - create_proposal {org_id, title, description}; optionally AT MOST ONE of:
      action {kind: APPROVE_MEMBER|UPDATE_ORG_INFO, payload} or config_delta {...}.
+     Neither is valid too (plain STANDARD proposal); both together are rejected (-32005).
 
 8. MULTI-ORG ETIQUETTE
    - One identity, many memberships (get_agent lists them all). Decisions are isolated

@@ -3,7 +3,6 @@
 #include "core/Config.h"
 #include "core/Logger.h"
 #include "storage/RocksDBWrapper.h"
-#include "storage/SchemaVersion.h"
 
 #include <rocksdb/utilities/checkpoint.h>
 
@@ -41,12 +40,6 @@ int runCheckpointCommand(int argc, char** argv) {
         RocksDBWrapper db(cfg.storage);
         if (!db.open()) {
             std::cerr << "checkpoint: cannot open database (locked, corrupted or unhealthy)\n";
-            return 1;
-        }
-        SchemaManager schema(db);
-        auto gate = schema.run();
-        if (gate == SchemaGateResult::kFatalNewerSchema) {
-            std::cerr << "checkpoint: database schema is newer than the binary\n";
             return 1;
         }
         if (!DbHealth::instance().healthy()) {

@@ -92,6 +92,45 @@ TEST(MetricsSemantics, VotePathRejectionCountsEarlyExitOnce) {
               before + 1);
 }
 
+// observability: тикеры RocksDB публикуются при скрейпе; wal_synced_total
+// монотонен и растёт после записи между двумя скрейпами (design D4).
+TEST(RocksdbMetrics, PublishedOnScrapeAndMonotonicAcrossWrites) {
+    auto h = Harness::create();
+    AgentContext a = h->registerAgent("rk-admin");
+
+    // «Скрейп 1»: публикация перед чтением — как делает обработчик /metrics.
+    h->app->db->publishStatisticsToRegistry();
+    const std::int64_t walBefore = sampleValue(metrics(), "voterpool_rocksdb_wal_synced_total");
+
+    // Запись между скрейпами (sync-коммит синхронизирует WAL).
+    Json::Value args;
+    args["name"] = "rk-agent-2";
+    ASSERT_TRUE(mcp::dispatchToolForTests(*h->app, nullptr, "register_agent", args).ok());
+
+    // «Скрейп 2».
+    h->app->db->publishStatisticsToRegistry();
+    const std::int64_t walAfter = sampleValue(metrics(), "voterpool_rocksdb_wal_synced_total");
+    EXPECT_GT(walAfter, walBefore) << "WAL syncs must accumulate across scrapes";
+    EXPECT_GE(walAfter, 1);
+
+    const std::string out = metrics();
+    for (const char* family : {"voterpool_rocksdb_block_cache_usage",
+                               "voterpool_rocksdb_block_cache_capacity",
+                               "voterpool_rocksdb_block_cache_hits_total",
+                               "voterpool_rocksdb_block_cache_misses_total",
+                               "voterpool_rocksdb_estimate_pending_compaction_bytes",
+                               "voterpool_rocksdb_wal_synced_total",
+                               "voterpool_rocksdb_flush_write_bytes_total",
+                               "voterpool_rocksdb_compaction_read_bytes_total",
+                               "voterpool_rocksdb_compaction_write_bytes_total"}) {
+        const std::string name(family);
+        EXPECT_NE(out.find("# HELP " + name + " "), std::string::npos) << name;
+        EXPECT_NE(out.find("# TYPE " + name + " gauge\n"), std::string::npos) << name;
+        EXPECT_NE(out.find("\n" + name + " "), std::string::npos) << name;
+        EXPECT_EQ(out.find(name + "{"), std::string::npos) << name << " must be label-free";
+    }
+}
+
 TEST(AgentsGauge, ReflectsRegisteredAgentsAndSurvivesRestart) {
     std::string dir = tempDbDir();
 

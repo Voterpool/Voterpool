@@ -26,10 +26,12 @@ inline std::string agentOrgs(const std::string& agentId, const std::string& orgI
 }
 inline std::string agentOrgsPrefix(const std::string& agentId) { return "agent_orgs:" + agentId + ":"; }
 
-inline std::string auditKey(const std::string& orgId, std::int64_t tsMs, int seq) {
-    char buf[32];
-    snprintf(buf, sizeof(buf), "%020lld", static_cast<long long>(tsMs));
-    return "audit:" + orgId + ":" + buf + ":" + std::to_string(seq);
+inline std::string auditKey(const std::string& orgId, std::int64_t tsMs, std::uint64_t salt,
+                            std::int64_t seq) {
+    char tail[64];
+    snprintf(tail, sizeof(tail), "%020lld:%016llx%019lld", static_cast<long long>(tsMs),
+             static_cast<unsigned long long>(salt), static_cast<long long>(seq));
+    return "audit:" + orgId + ":" + tail;
 }
 inline std::string auditPrefix(const std::string& orgId) { return "audit:" + orgId + ":"; }
 
