@@ -8,9 +8,9 @@ ToolDef defUpdateVotingPower() {
         "update_voting_power",
         "ADMIN-only: change a member's voting power (SHARES distribution only)",
         [] {
-            return schemaObject({{"org_id", Json::Value("string")},
-                                 {"target_agent_id", Json::Value("string")},
-                                 {"new_power", Json::Value("number")}},
+            return schemaObject({{"org_id", schemaString()},
+                                 {"target_agent_id", schemaString()},
+                                 {"new_power", schemaNumber()}},
                                 {"org_id", "target_agent_id", "new_power"});
         },
         [](ToolContext& tc, const Json::Value& args) -> Result<Json::Value> {

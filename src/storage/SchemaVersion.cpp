@@ -32,6 +32,23 @@ bool SchemaManager::migrateTo(int from, int to) {
     spdlog::info("Migrating schema v{} -> v{} ...", from, to);
     std::int64_t records = 0;
     if (from == 1 && to == 2) {
+        // Проход 1 (validate): каждая запись cf_proposals обязана быть
+        // корректным JSON. Битая запись неисправима — фатально прерываем
+        // миграцию до любой мутации, диск остаётся нетронутым.
+        {
+            auto it = db_.newIterator("cf_proposals");
+            for (it->SeekToFirst(); it->Valid(); it->Next()) {
+                if (!Codec::parse(it->value().ToString())) {
+                    spdlog::critical(
+                        "Schema migration v{} -> v{} aborted: record '{}' is not valid JSON; "
+                        "restore this key from checkpoint or remove it, then restart",
+                        from, to, it->key().ToString());
+                    return false;
+                }
+            }
+        }
+        // Проход 2 (mutate): все записи валидны — дописываем поле старым
+        // записям, неизвестные поля сохраняются.
         std::vector<std::pair<std::string, std::string>> updates;
         auto it = db_.newIterator("cf_proposals");
         for (it->SeekToFirst(); it->Valid(); it->Next()) {

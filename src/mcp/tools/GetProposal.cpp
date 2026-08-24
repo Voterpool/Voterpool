@@ -8,7 +8,7 @@ ToolDef defGetProposal() {
         "Fetch the full card of a single proposal by proposal_id: status, aggregated powers, "
         "timestamps, applied action/config_delta flags and (for ACTIVE members) the complete "
         "vote list with each agent's decision and power at vote",
-        [] { return schemaObject({{"proposal_id", Json::Value("string")}}, {"proposal_id"}); },
+        [] { return schemaObject({{"proposal_id", schemaString()}}, {"proposal_id"}); },
         [](ToolContext& tc, const Json::Value& args) -> Result<Json::Value> {
             auto proposalId = argUuid(args, "proposal_id");
             if (!proposalId.ok()) return proposalId.error();

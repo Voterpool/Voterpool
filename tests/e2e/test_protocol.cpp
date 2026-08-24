@@ -97,7 +97,42 @@ TEST(E2eProtocol, ToolsListStructuredSortedAndComplete) {
     EXPECT_GE(tools.size(), 15u);
     for (const auto& t : tools) {
         EXPECT_TRUE(t.isMember("description"));
-        EXPECT_TRUE(t["inputSchema"].isObject());
+        const Json::Value& schema = t["inputSchema"];
+        ASSERT_TRUE(schema.isObject()) << t["name"].asString();
+        // JSON Schema draft 2020-12: каждое свойство — объект-схема с type.
+        ASSERT_TRUE(schema.isMember("properties")) << t["name"].asString();
+        EXPECT_EQ(schema["type"].asString(), "object") << t["name"].asString();
+        const Json::Value& props = schema["properties"];
+        std::string firstName;
+        for (const auto& key : props.getMemberNames()) {
+            if (firstName.empty()) firstName = key;
+            const Json::Value& prop = props[key];
+            ASSERT_TRUE(prop.isObject()) << t["name"].asString() << "." << key
+                                         << " must be a schema object, not a literal";
+            ASSERT_TRUE(prop.isMember("type")) << t["name"].asString() << "." << key;
+            const std::string ty = prop["type"].asString();
+            EXPECT_TRUE(ty == "string" || ty == "number" || ty == "integer" || ty == "boolean" ||
+                        ty == "array" || ty == "object")
+                << t["name"].asString() << "." << key << " has invalid type " << ty;
+        }
+        // required ⊆ properties; enum decision в cast_vote — все варианты.
+        if (schema.isMember("required")) {
+            ASSERT_TRUE(schema["required"].isArray()) << t["name"].asString();
+            for (const auto& req : schema["required"]) {
+                EXPECT_TRUE(props.isMember(req.asString()))
+                    << t["name"].asString() << ": required '" << req.asString() << "' not in properties";
+            }
+        }
+        if (t["name"].asString() == "cast_vote") {
+            const Json::Value& decision = props["decision"];
+            ASSERT_TRUE(decision.isObject());
+            ASSERT_TRUE(decision.isMember("enum"));
+            ASSERT_TRUE(decision["enum"].isArray());
+            EXPECT_EQ(decision["enum"].size(), 3u);
+            EXPECT_EQ(decision["enum"][0].asString(), "YES");
+            EXPECT_EQ(decision["enum"][1].asString(), "NO");
+            EXPECT_EQ(decision["enum"][2].asString(), "ABSTAIN");
+        }
     }
     std::string prev;
     for (const auto& t : tools) {

@@ -9,6 +9,7 @@ add_executable(voterpool_unit_tests
     unit/test_request_log.cpp
     unit/test_org_name_registry.cpp
     unit/test_codec.cpp
+    unit/test_metrics_exposition.cpp
 )
 target_link_libraries(voterpool_unit_tests PRIVATE voterpool_core GTest::gtest_main)
 
@@ -27,6 +28,7 @@ add_executable(voterpool_integration_tests
     integration/test_degraded_mode.cpp
     integration/test_onboarding_flow.cpp
     integration/test_config_delta.cpp
+    integration/test_metrics_semantics.cpp
 )
 target_link_libraries(voterpool_integration_tests PRIVATE voterpool_core GTest::gtest_main)
 
@@ -36,11 +38,14 @@ add_executable(voterpool_e2e_tests
     e2e/test_sse_events.cpp
     e2e/test_errors_http.cpp
     e2e/test_onboarding_http.cpp
+    e2e/test_transport.cpp
     e2e/E2eEnv.cpp
     common/HttpUtil.cpp
     common/SseClient.cpp
 )
 target_link_libraries(voterpool_e2e_tests PRIVATE voterpool_core GTest::gtest_main)
+add_dependencies(voterpool_e2e_tests voterpool)
+target_compile_definitions(voterpool_e2e_tests PRIVATE VOTERPOOL_BIN="$<TARGET_FILE:voterpool>")
 
 add_executable(voterpool_e2e_shutdown
     e2e/test_shutdown.cpp

@@ -78,7 +78,6 @@ void ConsensusEngine::finalizeLocked(rocksdb::WriteBatch& batch, Proposal& p, Pr
     auto finish = [&] { d_.proposals->put(batch, p); };
 
     if (finalStatus != ProposalStatus::PASSED) {
-        MetricsRegistry::instance().incCounter("voterpool_consensus_early_exit_total", {{"consensus_model", toString(p.config_at_creation.consensus_model)}});
         finish();
         return;
     }
@@ -277,6 +276,12 @@ Result<VoteReceipt> ConsensusEngine::castVote(const std::string& agentId, const 
 
     ClosedInfo closed;
     auto eval = model->evaluate(p, false);
+    // Early-Exit (docs/02): vote-path закрытие REJECTED по принципиальной
+    // невозможности PASSED. Таймерные и dissolve-закрытия не считаются.
+    if (eval.finalStatus.has_value() && eval.finalStatus.value() == ProposalStatus::REJECTED) {
+        MetricsRegistry::instance().incCounter("voterpool_consensus_early_exit_total",
+                                               {{"consensus_model", toString(p.config_at_creation.consensus_model)}});
+    }
     KeyedMutexRegistry::Guard orgLock;
     if (eval.finalStatus.has_value()) {
         if (orgEffectsPossible(p, *eval.finalStatus)) {

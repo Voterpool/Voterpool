@@ -6,7 +6,7 @@ ToolDef defJoinOrganization() {
     return ToolDef{
         "join_organization",
         "Join an organization: instant ACTIVE membership for OPEN orgs, PENDING request for CLOSED ones",
-        [] { return schemaObject({{"org_id", Json::Value("string")}}, {"org_id"}); },
+        [] { return schemaObject({{"org_id", schemaString()}}, {"org_id"}); },
         [](ToolContext& tc, const Json::Value& args) -> Result<Json::Value> {
             auto orgId = argUuid(args, "org_id");
             if (!orgId.ok()) return orgId.error();

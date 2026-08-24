@@ -19,12 +19,19 @@ void AppContext::init(IClock* clockOverride) {
     if (gate == SchemaGateResult::kFatalNewerSchema) {
         throw std::runtime_error("Database schema is newer than the binary; exiting");
     }
+    if (gate == SchemaGateResult::kError) {
+        throw std::runtime_error("Database schema migration failed; exiting");
+    }
     agents = std::make_unique<AgentRepository>(*db, *clock);
     orgs = std::make_unique<OrgRepository>(*db, *clock);
     proposals = std::make_unique<ProposalRepository>(*db, *clock);
     votes = std::make_unique<VoteRepository>(*db, *clock);
     indexes = std::make_unique<IndexRepository>(*db);
     audit = std::make_unique<AuditLogRepository>(*db);
+    // Gauge агентов инициализируется состоянием БД: после рестарта на
+    // непустой базе /metrics отдаёт корректное число с первого скрейпа.
+    MetricsRegistry::instance().setGauge("voterpool_agents_total", {},
+                                         static_cast<std::int64_t>(agents->count()));
     if (config.storage.rebuild_index_on_start) {
         std::size_t restored = 0;
         rocksdb::WriteBatch batch;

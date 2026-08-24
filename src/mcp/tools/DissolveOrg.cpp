@@ -6,7 +6,7 @@ ToolDef defDissolveOrganization() {
     return ToolDef{
         "dissolve_organization",
         "ADMIN-only: dissolve the organization (data is preserved; it disappears from search and rejects operations)",
-        [] { return schemaObject({{"org_id", Json::Value("string")}}, {"org_id"}); },
+        [] { return schemaObject({{"org_id", schemaString()}}, {"org_id"}); },
         [](ToolContext& tc, const Json::Value& args) -> Result<Json::Value> {
             auto orgId = argUuid(args, "org_id");
             if (!orgId.ok()) return orgId.error();

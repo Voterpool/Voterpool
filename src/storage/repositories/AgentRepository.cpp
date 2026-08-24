@@ -24,7 +24,6 @@ bool AgentRepository::create(const std::string& agentId, const std::string& name
         if (outErr) *outErr = "storage write failed";
         return false;
     }
-    MetricsRegistry::instance().incCounter("voterpool_agents_total");
     MetricsRegistry::instance().setGauge(
         "voterpool_agents_total", {}, static_cast<std::int64_t>(count()));
     return true;

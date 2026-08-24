@@ -6,7 +6,7 @@ ToolDef defLeaveOrganization() {
     return ToolDef{
         "leave_organization",
         "Leave an organization; the last ADMIN must transfer admin rights first",
-        [] { return schemaObject({{"org_id", Json::Value("string")}}, {"org_id"}); },
+        [] { return schemaObject({{"org_id", schemaString()}}, {"org_id"}); },
         [](ToolContext& tc, const Json::Value& args) -> Result<Json::Value> {
             auto orgId = argUuid(args, "org_id");
             if (!orgId.ok()) return orgId.error();
@@ -20,9 +20,9 @@ ToolDef defLeaveOrganization() {
 
             auto m = tc.app.orgs->getMembership(orgId.value(), tc.agent->agent_id);
             if (!m) {
-                RpcError e = RpcError::forbidden("Agent is not a member of this organization");
-                e.data["org_id"] = orgId.value();
-                return e;
+                // Единый ответ с DISSOLVED-веткой: не-участник не отличает
+                // отсутствие членства от роспуска организации (organizations).
+                return RpcError::notFound("Organization", orgId.value());
             }
             if (m->role == MemberRole::ADMIN) {
                 int admins = 0;
@@ -63,8 +63,8 @@ ToolDef defTransferAdmin() {
         "transfer_admin",
         "ADMIN-only: transfer the ADMIN role to another ACTIVE member (exactly one admin at any time)",
         [] {
-            return schemaObject({{"org_id", Json::Value("string")},
-                                 {"target_agent_id", Json::Value("string")}},
+            return schemaObject({{"org_id", schemaString()},
+                                 {"target_agent_id", schemaString()}},
                                 {"org_id", "target_agent_id"});
         },
         [](ToolContext& tc, const Json::Value& args) -> Result<Json::Value> {

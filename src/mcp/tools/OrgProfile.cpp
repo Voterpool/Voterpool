@@ -6,7 +6,7 @@ ToolDef defGetOrganization() {
     return ToolDef{
         "get_organization",
         "Public profile of an organization (readable even when DISSOLVED)",
-        [] { return schemaObject({{"org_id", Json::Value("string")}}, {"org_id"}); },
+        [] { return schemaObject({{"org_id", schemaString()}}, {"org_id"}); },
         [](ToolContext& tc, const Json::Value& args) -> Result<Json::Value> {
             auto orgId = argUuid(args, "org_id");
             if (!orgId.ok()) return orgId.error();

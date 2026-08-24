@@ -92,19 +92,47 @@ void applyYaml(AppConfig& c, const YAML::Node& root) {
 
 void applyEnv(AppConfig& c) {
     c.server.ssl.enabled = envBool("VOTERPOOL_SERVER_SSL_ENABLED", c.server.ssl.enabled);
+    c.server.ssl.cert_path = envOr("VOTERPOOL_SERVER_SSL_CERT_PATH", c.server.ssl.cert_path);
+    c.server.ssl.key_path = envOr("VOTERPOOL_SERVER_SSL_KEY_PATH", c.server.ssl.key_path);
     c.server.host = envOr("VOTERPOOL_SERVER_HOST", c.server.host);
     c.server.port = static_cast<int>(envInt("VOTERPOOL_SERVER_PORT", c.server.port));
     c.server.threads_num = static_cast<int>(envInt("VOTERPOOL_SERVER_THREADS_NUM", c.server.threads_num));
+    c.server.max_request_body_size =
+        static_cast<std::uint64_t>(envInt("VOTERPOOL_SERVER_MAX_REQUEST_BODY_SIZE",
+                                          static_cast<long long>(c.server.max_request_body_size)));
+    c.server.request_timeout_sec =
+        static_cast<int>(envInt("VOTERPOOL_SERVER_REQUEST_TIMEOUT_SEC", c.server.request_timeout_sec));
     c.storage.path = envOr("VOTERPOOL_STORAGE_PATH", c.storage.path);
     c.storage.max_open_files = static_cast<int>(envInt("VOTERPOOL_STORAGE_MAX_OPEN_FILES", c.storage.max_open_files));
+    c.storage.write_buffer_size =
+        static_cast<std::uint64_t>(envInt("VOTERPOOL_STORAGE_WRITE_BUFFER_SIZE",
+                                          static_cast<long long>(c.storage.write_buffer_size)));
+    c.storage.max_write_buffer_number =
+        static_cast<int>(envInt("VOTERPOOL_STORAGE_MAX_WRITE_BUFFER_NUMBER", c.storage.max_write_buffer_number));
+    c.storage.log_level = envOr("VOTERPOOL_STORAGE_LOG_LEVEL", c.storage.log_level);
+    c.storage.rebuild_index_on_start =
+        envBool("VOTERPOOL_STORAGE_REBUILD_INDEX_ON_START", c.storage.rebuild_index_on_start);
     c.auth.mode = envOr("VOTERPOOL_AUTH_MODE", c.auth.mode);
+    c.auth.oidc.jwks_url = envOr("VOTERPOOL_AUTH_OIDC_JWKS_URL", c.auth.oidc.jwks_url);
+    c.auth.oidc.issuer = envOr("VOTERPOOL_AUTH_OIDC_ISSUER", c.auth.oidc.issuer);
+    c.auth.oidc.cache_ttl_sec =
+        static_cast<int>(envInt("VOTERPOOL_AUTH_OIDC_CACHE_TTL_SEC", c.auth.oidc.cache_ttl_sec));
     c.sse.heartbeat_interval_sec = static_cast<int>(envInt("VOTERPOOL_SSE_HEARTBEAT_INTERVAL_SEC", c.sse.heartbeat_interval_sec));
     c.metrics.enabled = envBool("VOTERPOOL_METRICS_ENABLED", c.metrics.enabled);
     c.metrics.path = envOr("VOTERPOOL_METRICS_PATH", c.metrics.path);
     c.mcp.protocol_version = envOr("VOTERPOOL_MCP_PROTOCOL_VERSION", c.mcp.protocol_version);
-    c.mcp.tools_list_cache_ttl_ms = static_cast<std::uint64_t>(envInt("VOTERPOOL_MCP_TOOLS_LIST_CACHE_TTL_MS", static_cast<long>(c.mcp.tools_list_cache_ttl_ms)));
+    c.mcp.tools_list_cache_ttl_ms = static_cast<std::uint64_t>(envInt("VOTERPOOL_MCP_TOOLS_LIST_CACHE_TTL_MS", static_cast<long long>(c.mcp.tools_list_cache_ttl_ms)));
     c.logging.level = envOr("VOTERPOOL_LOGGING_LEVEL", c.logging.level);
+    c.logging.format = envOr("VOTERPOOL_LOGGING_FORMAT", c.logging.format);
+    c.logging.async = envBool("VOTERPOOL_LOGGING_ASYNC", c.logging.async);
+    c.logging.async_queue_size = static_cast<std::size_t>(
+        envInt("VOTERPOOL_LOGGING_ASYNC_QUEUE_SIZE", static_cast<long long>(c.logging.async_queue_size)));
     c.logging.log_file = envOr("VOTERPOOL_LOGGING_LOG_FILE", c.logging.log_file);
+    c.rate_limit.enabled = envBool("VOTERPOOL_RATE_LIMIT_ENABLED", c.rate_limit.enabled);
+    c.rate_limit.rps_per_agent =
+        static_cast<int>(envInt("VOTERPOOL_RATE_LIMIT_RPS_PER_AGENT", c.rate_limit.rps_per_agent));
+    c.rate_limit.rps_per_org =
+        static_cast<int>(envInt("VOTERPOOL_RATE_LIMIT_RPS_PER_ORG", c.rate_limit.rps_per_org));
 }
 
 struct CliOptions {
@@ -179,6 +207,20 @@ void AppConfig::validate() const {
         throw ConfigError("server.threads_num must be >= 0");
     if (server.request_timeout_sec <= 0)
         throw ConfigError("server.request_timeout_sec must be > 0");
+    if (server.max_request_body_size == 0)
+        throw ConfigError("server.max_request_body_size must be > 0");
+    if (server.ssl.enabled) {
+        for (const char* what : {"cert_path", "key_path"}) {
+            const std::string& path = std::string(what) == "cert_path" ? server.ssl.cert_path
+                                                                       : server.ssl.key_path;
+            std::error_code ec;
+            if (path.empty() || !std::filesystem::exists(path, ec) || !std::filesystem::is_regular_file(path, ec) ||
+                access(path.c_str(), R_OK) != 0) {
+                throw ConfigError("server.ssl." + std::string(what) + " is not a readable file: '" + path +
+                                  "'");
+            }
+        }
+    }
     if (storage.write_buffer_size == 0)
         throw ConfigError("storage.write_buffer_size must be > 0");
     if (storage.max_write_buffer_number <= 0)

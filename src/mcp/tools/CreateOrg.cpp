@@ -10,19 +10,19 @@ ToolDef defCreateOrganization() {
         "Create an organization with consensus settings; the creator becomes its single ADMIN",
         [] {
             Json::Value config = schemaObject(
-                {{"consensus_model", Json::Value("string")},
-                 {"quorum_percentage", Json::Value("integer")},
-                 {"voting_duration_sec", Json::Value("integer")},
-                 {"power_distribution", Json::Value("string")}},
+                {{"consensus_model", schemaString()},
+                 {"quorum_percentage", schemaInteger()},
+                 {"voting_duration_sec", schemaInteger()},
+                 {"power_distribution", schemaString()}},
                 {"consensus_model", "voting_duration_sec"});
             return schemaObject(
-                {{"name", Json::Value("string")},
-                 {"short_description", Json::Value("string")},
-                 {"description", Json::Value("string")},
-                 {"tags", Json::Value(Json::arrayValue)},
-                 {"type", Json::Value("string")},
-                 {"max_agents", Json::Value("integer")},
-                 {"joins_per_day_limit", Json::Value("integer")},
+                {{"name", schemaString()},
+                 {"short_description", schemaString()},
+                 {"description", schemaString()},
+                 {"tags", schemaArrayOf("string")},
+                 {"type", schemaString()},
+                 {"max_agents", schemaInteger()},
+                 {"joins_per_day_limit", schemaInteger()},
                  {"config", std::move(config)}},
                 {"name", "type", "config"});
         },

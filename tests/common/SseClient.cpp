@@ -54,6 +54,21 @@ bool SseClient::fillBuffer(int timeoutMs) {
     return true;
 }
 
+std::string SseClient::responseHead(int timeoutMs) {
+    auto t0 = std::chrono::steady_clock::now();
+    for (;;) {
+        const size_t end = buffer_.find("\r\n\r\n");
+        if (end != std::string::npos) {
+            std::string head = buffer_.substr(0, end);
+            buffer_.erase(0, end + 4);
+            return head;
+        }
+        const int waited = static_cast<int>(
+            std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count());
+        if (waited >= timeoutMs || !fillBuffer(timeoutMs - waited)) return {};
+    }
+}
+
 std::optional<SseClient::Event> SseClient::nextEvent(int timeoutMs) {
     size_t deadline = 0;
     while (deadline < static_cast<size_t>(timeoutMs)) {

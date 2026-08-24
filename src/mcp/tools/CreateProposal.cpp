@@ -18,17 +18,17 @@ ToolDef defCreateProposal() {
         "Create a proposal (STANDARD, or ACTION with kind APPROVE_MEMBER | UPDATE_ORG_INFO); optionally carry config_delta",
         [] {
             Json::Value configDelta = schemaObject(
-                {{"consensus_model", Json::Value("string")},
-                 {"quorum_percentage", Json::Value("integer")},
-                 {"voting_duration_sec", Json::Value("integer")},
-                 {"power_distribution", Json::Value("string")}},
+                {{"consensus_model", schemaString()},
+                 {"quorum_percentage", schemaInteger()},
+                 {"voting_duration_sec", schemaInteger()},
+                 {"power_distribution", schemaString()}},
                 {});
             return schemaObject(
-                {{"org_id", Json::Value("string")},
-                 {"title", Json::Value("string")},
-                 {"description", Json::Value("string")},
+                {{"org_id", schemaString()},
+                 {"title", schemaString()},
+                 {"description", schemaString()},
                  {"config_delta", std::move(configDelta)},
-                 {"action", Json::Value("object")}},
+                 {"action", schemaObjectValue()}},
                 {"org_id", "title"});
         },
         [](ToolContext& tc, const Json::Value& args) -> Result<Json::Value> {

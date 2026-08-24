@@ -120,20 +120,23 @@ void AuthMiddleware::handle(const drogon::HttpRequestPtr& req, AdviceCallback&& 
             respond(jsonRpcErrorBody(e.code, e.message, e.data, drogon::k200OK));
         };
 
-        // Версия протокола: заголовок приоритетен, при его отсутствии — _meta.
-        const std::string effectiveVersion = !hdrVersion.empty() ? hdrVersion : probe.metaVersion;
-        if (effectiveVersion != app_.config.mcp.protocol_version) {
-            rejectProtocol("Unsupported protocol version");
-            return;
-        }
-        if (!hdrVersion.empty() && !probe.metaVersion.empty() && hdrVersion != probe.metaVersion) {
-            rejectProtocol("MCP-Protocol-Version header does not match _meta protocolVersion");
-            return;
-        }
-
-        // Mcp-Method обязан совпадать с методом тела; для вызовов инструментов
-        // дополнительно требуется Mcp-Name.
+        // Неразборчивое тело протокол не нарушает: предварительные проверки
+        // пропускаются, запрос доходит до хендлера и получает -32700 + HTTP 400
+        // независимо от заголовков Mcp-Method/Mcp-Name/MCP-Protocol-Version.
         if (!probe.method.empty()) {
+            // Версия протокола: заголовок приоритетен, при его отсутствии — _meta.
+            const std::string effectiveVersion = !hdrVersion.empty() ? hdrVersion : probe.metaVersion;
+            if (effectiveVersion != app_.config.mcp.protocol_version) {
+                rejectProtocol("Unsupported protocol version");
+                return;
+            }
+            if (!hdrVersion.empty() && !probe.metaVersion.empty() && hdrVersion != probe.metaVersion) {
+                rejectProtocol("MCP-Protocol-Version header does not match _meta protocolVersion");
+                return;
+            }
+
+            // Mcp-Method обязан совпадать с методом тела; для вызовов инструментов
+            // дополнительно требуется Mcp-Name.
             if (mcpMethod != probe.method) {
                 rejectProtocol("Mcp-Method header does not match request method");
                 return;
@@ -141,13 +144,6 @@ void AuthMiddleware::handle(const drogon::HttpRequestPtr& req, AdviceCallback&& 
             const bool toolCall = probe.method == "tools/call" || isToolName(probe.method);
             if (toolCall && mcpName.empty()) {
                 rejectProtocol("Mcp-Name header is required for tool calls");
-                return;
-            }
-        } else {
-            // Тело не распознано — действуем по заголовкам (хендлер вернёт
-            // -32700/-32600 для невалидных тел).
-            if (mcpMethod != "tools/call") {
-                rejectProtocol("Protocol violation: invalid MCP headers");
                 return;
             }
         }

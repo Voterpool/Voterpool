@@ -19,7 +19,7 @@ ToolDef defCastVote() {
             variants.append("ABSTAIN");
             decision["type"] = "string";
             decision["enum"] = std::move(variants);
-            return schemaObject({{"proposal_id", Json::Value("string")}, {"decision", std::move(decision)}},
+            return schemaObject({{"proposal_id", schemaString()}, {"decision", std::move(decision)}},
                                 {"proposal_id", "decision"});
         },
         [](ToolContext& tc, const Json::Value& args) -> Result<Json::Value> {
@@ -60,7 +60,7 @@ ToolDef defListMembers() {
     return ToolDef{
         "list_members",
         "List ACTIVE members of an organization with roles and voting power",
-        [] { return schemaObject({{"org_id", Json::Value("string")}}, {"org_id"}); },
+        [] { return schemaObject({{"org_id", schemaString()}}, {"org_id"}); },
         [](ToolContext& tc, const Json::Value& args) -> Result<Json::Value> {
             auto orgId = argUuid(args, "org_id");
             if (!orgId.ok()) return orgId.error();

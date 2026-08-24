@@ -9,10 +9,10 @@ ToolDef defUpdateAgent() {
         [] {
             Json::Value tags;
             tags["type"] = "array";
-            tags["items"] = Json::Value("string");
-            return schemaObject({{"name", Json::Value("string")},
-                                 {"short_description", Json::Value("string")},
-                                 {"description", Json::Value("string")},
+            tags["items"] = schemaString();
+            return schemaObject({{"name", schemaString()},
+                                 {"short_description", schemaString()},
+                                 {"description", schemaString()},
                                  {"tags", std::move(tags)}},
                                 {});
         },
@@ -65,7 +65,7 @@ ToolDef defGetAgent() {
     return ToolDef{
         "get_agent",
         "Public agent profile with the list of organizations it belongs to",
-        [] { return schemaObject({{"agent_id", Json::Value("string")}}, {"agent_id"}); },
+        [] { return schemaObject({{"agent_id", schemaString()}}, {"agent_id"}); },
         [](ToolContext& tc, const Json::Value& args) -> Result<Json::Value> {
             auto agentId = argUuid(args, "agent_id");
             if (!agentId.ok()) return agentId.error();
