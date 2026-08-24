@@ -37,6 +37,10 @@ ToolDef defCreateProposal() {
             auto title = argString(args, "title");
             if (!title.ok()) return title.error();
 
+            // Org-лок: статус организации и согласованный снимок T/H читаются
+            // под локом, вставка атомарна относительно роспуска и мутаций
+            // состава (design D5). Быстрые проверки до лока — только fast-path.
+            auto orgLock = tc.app.orgLocks.acquire(orgId.value());
             auto orgOpt = tc.app.orgs->get(orgId.value());
             if (!orgOpt) return RpcError::notFound("Organization", orgId.value());
             if (orgOpt->status == OrgStatus::DISSOLVED)

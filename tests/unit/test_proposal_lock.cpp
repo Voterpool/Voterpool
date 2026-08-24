@@ -7,6 +7,7 @@
 #include <thread>
 #include <vector>
 
+using voterpool::KeyedMutexRegistry;
 using voterpool::ProposalLockRegistry;
 
 TEST(ProposalLockRegistry, ForgetWhileGuardAliveKeepsMutexAlive) {
@@ -87,4 +88,36 @@ TEST(ProposalLockRegistry, ConcurrentAcquireAndForgetIsSafe) {
         }
     });
     for (auto& t : threads) t.join();
+}
+
+TEST(KeyedMutexRegistry, TwoInstancesWithSameKeysAreIndependent) {
+    KeyedMutexRegistry proposals;
+    KeyedMutexRegistry orgs;
+
+    auto proposalGuard = proposals.acquire("shared-id");
+    std::atomic<bool> entered{false};
+    std::thread t([&] {
+        auto orgGuard = orgs.acquire("shared-id");
+        entered.store(true);
+    });
+    t.join();
+    EXPECT_TRUE(entered.load())
+        << "одинаковый ключ в разных реестрах (proposal/org) не блокирует друг друга";
+}
+
+TEST(KeyedMutexRegistry, SameKeyStillSerializesWithinOneInstance) {
+    KeyedMutexRegistry orgs;
+    auto guard = orgs.acquire("org-1");
+    std::atomic<bool> entered{false};
+    std::thread t([&] {
+        auto g2 = orgs.acquire("org-1");
+        entered.store(true);
+    });
+    for (int i = 0; i < 100 && !entered.load(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    EXPECT_FALSE(entered.load()) << "внутри одного реестра тот же ключ сериализуется";
+    guard = KeyedMutexRegistry::Guard();
+    t.join();
+    EXPECT_TRUE(entered.load());
 }

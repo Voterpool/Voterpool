@@ -31,6 +31,7 @@ struct AppContext {
     std::unique_ptr<AuditLogRepository> audit;
     std::unique_ptr<IAuthProvider> authProvider;
     ProposalLockRegistry locks;
+    KeyedMutexRegistry orgLocks;
     std::unique_ptr<ConsensusEngine> engine;
     std::unique_ptr<SseHub> hub;
     std::unique_ptr<Workers> workers;

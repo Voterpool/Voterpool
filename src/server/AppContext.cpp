@@ -41,7 +41,7 @@ void AppContext::init(IClock* clockOverride) {
     hub = std::make_unique<SseHub>();
     engine = std::make_unique<ConsensusEngine>(ConsensusEngine::Deps{
         db.get(), orgs.get(), proposals.get(), votes.get(),
-        indexes.get(), audit.get(), &locks, clock,
+        indexes.get(), audit.get(), &locks, &orgLocks, clock,
         [this](const SseEvent& ev) {
             if (workers) workers->enqueue(ev);
             else hub->deliver(ev);

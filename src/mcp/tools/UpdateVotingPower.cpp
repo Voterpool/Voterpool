@@ -21,6 +21,11 @@ ToolDef defUpdateVotingPower() {
             auto newPower = argDouble(args, "new_power");
             if (!newPower.ok()) return newPower.error();
 
+            // Org-лок сериализует чтение организации/членства, проверку
+            // суммы ≤100% и инкрементальный пересчёт total_voting_power
+            // с конкурентными мутациями состава и сил (design D5).
+            auto orgLock = tc.app.orgLocks.acquire(orgId.value());
+
             auto orgOpt = tc.app.orgs->get(orgId.value());
             if (!orgOpt || orgOpt->status == OrgStatus::DISSOLVED)
                 return RpcError::notFound("Organization", orgId.value());

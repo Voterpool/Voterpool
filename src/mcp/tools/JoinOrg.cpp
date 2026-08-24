@@ -35,6 +35,16 @@ ToolDef defJoinOrganization() {
             double power =
                 orgOpt->config.power_distribution == PowerDistribution::EQUAL ? 1.0 : 0.0;
 
+            // Org-лок сериализует чтение организации, проверку лимитов,
+            // инкремент счётчика и обновление total_voting_power с
+            // конкурентными мутациями организации (design D5).
+            // PENDING-ветка ниже остаётся без лока: пишет независимые
+            // ключи, повтор идемпотентен.
+            auto orgLock = tc.app.orgLocks.acquire(orgId.value());
+            orgOpt = tc.app.orgs->get(orgId.value());
+            if (!orgOpt || orgOpt->status == OrgStatus::DISSOLVED)
+                return RpcError::notFound("Organization", orgId.value());
+
             if (orgOpt->type == OrgType::OPEN) {
                 if (orgOpt->max_agents > 0 &&
                     tc.app.orgs->countActiveMembers(orgId.value()) >= orgOpt->max_agents) {

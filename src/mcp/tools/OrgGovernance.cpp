@@ -10,6 +10,10 @@ ToolDef defLeaveOrganization() {
         [](ToolContext& tc, const Json::Value& args) -> Result<Json::Value> {
             auto orgId = argUuid(args, "org_id");
             if (!orgId.ok()) return orgId.error();
+
+            // Org-лок сериализует подсчёт админов и декремент
+            // total_voting_power с конкурентными мутациями (design D5).
+            auto orgLock = tc.app.orgLocks.acquire(orgId.value());
             auto orgOpt = tc.app.orgs->get(orgId.value());
             if (!orgOpt || orgOpt->status == OrgStatus::DISSOLVED)
                 return RpcError::notFound("Organization", orgId.value());
@@ -68,6 +72,10 @@ ToolDef defTransferAdmin() {
             if (!orgId.ok()) return orgId.error();
             auto target = argUuid(args, "target_agent_id");
             if (!target.ok()) return target.error();
+
+            // Org-лок сериализует смену ролей: инвариант «ровно один админ»
+            // не должен нарушаться конкурентными transfer/leave (design D5).
+            auto orgLock = tc.app.orgLocks.acquire(orgId.value());
 
             auto orgOpt = tc.app.orgs->get(orgId.value());
             if (!orgOpt || orgOpt->status == OrgStatus::DISSOLVED)
