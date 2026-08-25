@@ -27,6 +27,7 @@ WITH_TESTS="auto"       # auto | yes | no  (auto = ON)
 RUN_TESTS=0
 ASSUME_YES=0
 NONINTERACTIVE=0
+NO_SWAP=0
 DO_CLEAN=0
 
 DROGON_TAG="v1.9.6"
@@ -55,6 +56,7 @@ Usage: ./build.sh [options]
   --vcpkg [PATH]          Build dependencies via vcpkg (manifest mode);
                           PATH is the vcpkg directory (otherwise $VCPKG_ROOT or a fresh clone)
   --install-deps yes|no|auto  Control package installation (default: auto)
+  --no-swap              Never create temporary swap (disable low-memory protection)
   --clean                 Remove the build directory first
   -y, --yes               Non-interactive mode (CI); answer yes to everything
   -h, --help              This help
@@ -82,6 +84,7 @@ while [ $# -gt 0 ]; do
       if [ "${2:-}" != "" ] && [ "${2:0:1}" != "-" ]; then VCPKG_DIR="$2"; shift; fi
       ;;
     --install-deps) INSTALL_DEPS="${2:?need value}"; shift ;;
+    --no-swap) NO_SWAP=1 ;;
     --clean) DO_CLEAN=1 ;;
     -y|--yes) ASSUME_YES=1; NONINTERACTIVE=1 ;;
     -h|--help) usage; exit 0 ;;
@@ -205,7 +208,13 @@ ensure_build_memory() {
   swap="$(swap_total_mb)"
   if [ -n "$avail" ] && [ "$avail" -lt "$LOW_MEM_THRESHOLD_MB" ]; then
     if [ -z "$swap" ] || [ "$swap" -lt 512 ]; then
-      create_temp_swap "$avail" || true
+      if [ "$NO_SWAP" = "1" ]; then
+        warn "Low memory (${avail} MB available) but temporary swap is disabled by --no-swap."
+      elif confirm "Enable temporary ${SWAP_SIZE_MB} MB swap? The build may be OOM-killed without it." "Y"; then
+        create_temp_swap "$avail" || true
+      else
+        warn "Skipping temporary swap; the build may fail on low memory."
+      fi
     else
       log "Low memory (${avail} MB available), but ${swap} MB of swap is already active."
     fi
