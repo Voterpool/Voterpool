@@ -1,6 +1,5 @@
 #include "server/AppContext.h"
 
-#include "server/NativeAuthProvider.h"
 #include "storage/SchemaVersion.h"
 
 #include <spdlog/spdlog.h>
@@ -44,17 +43,19 @@ void AppContext::init(IClock* clockOverride) {
         db->commit(batch);
         spdlog::info("Rebuilt active-proposals index: {} entries", restored);
     }
-    authProvider = std::make_unique<NativeAuthProvider>(*agents);
     hub = std::make_unique<SseHub>();
     orgNames = std::make_unique<OrgNameRegistry>();
     orgNames->load(*db);
     spdlog::info("Loaded organization name registry: {} entries", orgNames->size());
+    directory = std::make_unique<scaling::LocalDirectory>(*orgNames, *indexes, *orgs, *proposals);
+    identity = std::make_unique<scaling::LocalIdentity>(*agents, *orgs);
+    events = std::make_unique<scaling::LocalEventBus>(*hub);
     engine = std::make_unique<ConsensusEngine>(ConsensusEngine::Deps{
         db.get(), orgs.get(), proposals.get(), votes.get(),
         indexes.get(), audit.get(), &locks, &orgLocks, clock, orgNames.get(),
         [this](const SseEvent& ev) {
             if (workers) workers->enqueue(ev);
-            else hub->deliver(ev);
+            else events->deliver(ev);
         }});
 }
 

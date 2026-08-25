@@ -7,6 +7,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <atomic>
 
 namespace drogon {
 class HttpResponse;
@@ -25,6 +26,8 @@ public:
                          drogon::ResponseStreamPtr stream);
 
     void deliver(const SseEvent& event);
+    // Тестовый доступ к истории доставки (прецедент dispatchToolForTests).
+    std::vector<SseEvent> eventsForTests() const;
     void heartbeat();
     void shutdownAll();
     size_t connectionCount();
@@ -42,6 +45,8 @@ private:
     void pruneLocked();
 
     std::mutex mutex_;
+    mutable std::mutex recordMutex_;
+    std::vector<SseEvent> recordedForTests_;
     std::unordered_map<std::string, std::vector<Subscriber>> byOrg_;
     std::vector<std::pair<uint64_t, StreamHolder>> allConnections_;
     uint64_t nextId_ = 1;

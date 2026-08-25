@@ -160,7 +160,7 @@ void AuthMiddleware::handle(const drogon::HttpRequestPtr& req, AdviceCallback&& 
         return;
     }
 
-    auto ctx = auth_.validate(token);
+    auto ctx = app_.identity->resolveToken(token);
     if (!ctx) {
         mwLog(false, -32001, mcpName.empty() ? std::string("-") : mcpName);
         mcp::RpcError e = mcp::RpcError::unauthorized("Auth token missing or invalid");

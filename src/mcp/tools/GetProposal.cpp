@@ -15,7 +15,9 @@ ToolDef defGetProposal() {
 
             // Изоляция: резолвим org_id одним O(1) lookup (как cast_vote), затем
             // стандартная проверка членства (docs/03 §1.3.2).
-            const std::string orgId = tc.app.proposals->lookupOrg(proposalId.value());
+            const std::string orgIdStr =
+    tc.app.directory->resolveProposal(proposalId.value()).value_or("");
+            const std::string& orgId = orgIdStr;
             if (orgId.empty()) return RpcError::notFound("Proposal", proposalId.value());
 
             auto member = requireActiveMember(tc.app, orgId, tc.agent->agent_id);

@@ -17,7 +17,7 @@ ToolDef defRegisterAgent() {
             std::string apiKey = generateApiKey();
             const std::string hash = sha256Hex(apiKey);
             std::string err;
-            if (!tc.app.agents->create(agentId, name.value(), hash, &err)) {
+            if (!tc.app.identity->createAgent(agentId, name.value(), hash, &err)) {
                 return RpcError::internal(err);
             }
             Json::Value out;

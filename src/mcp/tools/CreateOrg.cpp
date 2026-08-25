@@ -46,7 +46,7 @@ ToolDef defCreateOrganization() {
             if (!cfg.ok()) return cfg.error();
 
             // Дубликат имени: O(1) lookup по резидентному реестру (только ACTIVE).
-            if (auto dup = tc.app.orgNames->findActiveByName(Keys::nameLower(name.value()))) {
+            if (auto dup = tc.app.directory->findActiveByName(Keys::nameLower(name.value()))) {
                 RpcError e = RpcError::conflict("Organization with this name already exists");
                 e.data["org_id"] = *dup;
                 return e;
@@ -97,7 +97,7 @@ ToolDef defCreateOrganization() {
             tc.app.indexes->setCategory(batch, org);
             if (!tc.app.db->commit(batch)) return RpcError::internal("Storage write failed");
 
-            tc.app.orgNames->add(org.org_id, Keys::nameLower(org.name));
+            tc.app.directory->indexOrg(org.org_id, Keys::nameLower(org.name));
             refreshOrgGauges(tc.app);
 
             Json::Value out;

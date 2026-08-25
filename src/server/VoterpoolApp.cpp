@@ -62,13 +62,13 @@ void VoterpoolApp::registerRoutes() {
                 return;
             }
             std::vector<std::string> orgIds;
-            for (const auto& m : ctx_.orgs->listOrgsOfAgent(agent->agent_id)) {
+            for (const auto& m : ctx_.identity->listOrgsOfAgent(agent->agent_id)) {
                 if (m.status == MemberStatus::ACTIVE) orgIds.push_back(m.org_id);
             }
             auto resp = drogon::HttpResponse::newAsyncStreamResponse(
                 [this, orgIds, agentId = agent->agent_id](drogon::ResponseStreamPtr stream) {
                     stream->send(": connected\n\n");
-                    ctx_.hub->registerStreams(orgIds, agentId, std::move(stream));
+                    ctx_.events->subscribeAllOrgs(orgIds, agentId, std::move(stream));
                 },
                 true);
             resp->setStatusCode(drogon::k200OK);
@@ -93,7 +93,10 @@ void VoterpoolApp::registerRoutes() {
     drogon::app().registerHandler(
         ctx_.config.metrics.path,
         [this](const drogon::HttpRequestPtr&, std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
-            if (ctx_.db && ctx_.db->isOpen()) ctx_.db->publishStatisticsToRegistry();
+            if (ctx_.db && ctx_.db->isOpen()) {
+                ctx_.db->publishStatisticsToRegistry();
+                ctx_.db->publishBucketHistogram();
+            }
             auto resp = drogon::HttpResponse::newHttpResponse();
             resp->setStatusCode(drogon::k200OK);
             resp->setContentTypeString("text/plain; version=0.0.4");
@@ -105,7 +108,7 @@ void VoterpoolApp::registerRoutes() {
 
 void VoterpoolApp::startWorkers() {
     ctx_.workers = std::make_unique<Workers>(
-        ctx_.config, *ctx_.clock, *ctx_.hub,
+        ctx_.config, *ctx_.clock, *ctx_.events,
         [this](std::int64_t nowSec) { ctx_.engine->closeExpired(nowSec); });
     ctx_.workers->start();
 }
@@ -115,7 +118,7 @@ int VoterpoolApp::run() {
         // CAS делает повторный SIGTERM/SIGINT во время остановки безопасным.
         bool expected = false;
         if (!draining_.compare_exchange_strong(expected, true)) return;
-        ctx_.hub->shutdownAll();
+        ctx_.events->shutdownAll();
         if (ctx_.workers) ctx_.workers->stop();
         drogon::app().getLoop()->runAfter(0.2, [] { drogon::app().quit(); });
     };
@@ -146,7 +149,7 @@ void VoterpoolApp::finalizeShutdown() {
     if (!ctx_.workers) return;
     ctx_.workers->stop();
     ctx_.workers.reset();
-    if (ctx_.hub) ctx_.hub->shutdownAll();
+    if (ctx_.events) ctx_.events->shutdownAll();
     if (ctx_.db) ctx_.db->close();
     spdlog::info("Shutdown complete");
 }

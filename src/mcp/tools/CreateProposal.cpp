@@ -129,7 +129,7 @@ ToolDef defCreateProposal() {
             ev["title"] = p.title;
             ev["expires_at"] = static_cast<Json::Int64>(p.expires_at);
             ev["config"] = configBrief(orgOpt->config);
-            tc.app.hub->deliver(SseEvent{p.org_id, "proposal_created", Codec::dump(ev)});
+            tc.app.events->deliver(SseEvent{p.org_id, "proposal_created", Codec::dump(ev)});
 
             Json::Value out;
             out["proposal_id"] = p.proposal_id;

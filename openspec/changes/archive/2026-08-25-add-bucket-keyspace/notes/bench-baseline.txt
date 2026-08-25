@@ -1,0 +1,90 @@
+[2026-08-25 10:05:18.290] [info] Loaded organization name registry: 0 entries
+{
+	"cast_vote_duplicate" : 
+	{
+		"p50_ns" : 24791.0,
+		"p99_ns" : 56542.0
+	},
+	"get_agent" : 
+	{
+		"p50_ns" : 20000.0,
+		"p99_ns" : 42792.0
+	},
+	"get_proposal" : 
+	{
+		"p50_ns" : 24583.0,
+		"p99_ns" : 56791.0
+	},
+	"iterations" : 5000,
+	"label" : "baseline-prebucket",
+	"search_organizations" : 
+	{
+		"p50_ns" : 25208.0,
+		"p99_ns" : 56666.0
+	},
+	"ttl_tick_noop" : 
+	{
+		"p50_ns" : 625.0,
+		"p99_ns" : 3500.0
+	}
+}
+[2026-08-25 10:05:18.894] [info] Loaded organization name registry: 0 entries
+{
+	"cast_vote_duplicate" : 
+	{
+		"p50_ns" : 24458.0,
+		"p99_ns" : 42458.0
+	},
+	"get_agent" : 
+	{
+		"p50_ns" : 19750.0,
+		"p99_ns" : 34583.0
+	},
+	"get_proposal" : 
+	{
+		"p50_ns" : 24125.0,
+		"p99_ns" : 40625.0
+	},
+	"iterations" : 5000,
+	"label" : "baseline-prebucket",
+	"search_organizations" : 
+	{
+		"p50_ns" : 24792.0,
+		"p99_ns" : 41917.0
+	},
+	"ttl_tick_noop" : 
+	{
+		"p50_ns" : 583.0,
+		"p99_ns" : 3333.0
+	}
+}
+[2026-08-25 10:05:19.460] [info] Loaded organization name registry: 0 entries
+{
+	"cast_vote_duplicate" : 
+	{
+		"p50_ns" : 24334.0,
+		"p99_ns" : 40458.0
+	},
+	"get_agent" : 
+	{
+		"p50_ns" : 21666.0,
+		"p99_ns" : 36292.0
+	},
+	"get_proposal" : 
+	{
+		"p50_ns" : 24166.0,
+		"p99_ns" : 41584.0
+	},
+	"iterations" : 5000,
+	"label" : "baseline-prebucket",
+	"search_organizations" : 
+	{
+		"p50_ns" : 24750.0,
+		"p99_ns" : 40500.0
+	},
+	"ttl_tick_noop" : 
+	{
+		"p50_ns" : 583.0,
+		"p99_ns" : 3125.0
+	}
+}

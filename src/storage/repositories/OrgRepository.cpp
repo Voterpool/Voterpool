@@ -2,6 +2,8 @@
 
 #include "storage/Keys.h"
 
+#include <algorithm>
+
 namespace voterpool {
 
 bool OrgRepository::put(const Organization& org) {
@@ -82,16 +84,31 @@ std::vector<Membership> OrgRepository::listMembers(const std::string& orgId) {
 }
 
 std::vector<Membership> OrgRepository::listOrgsOfAgent(const std::string& agentId) {
-    std::vector<Membership> out;
+    // Мульти-бакетный скан: связи agent↔org живут в бакете КАЖДОЙ
+    // организации (docs/16 §3.2). Порядок результата — org_id asc,
+    // эквивалентен legacy-глобальной лексикографической раскладке.
+    struct Hit {
+        std::string orgId;
+        Membership m;
+    };
+    std::vector<Hit> hits;
     auto iter = db_.newIterator("cf_agent_orgs");
-    for (iter->Seek(Keys::agentOrgsPrefix(agentId)); iter->Valid(); iter->Next()) {
-        std::string k = iter->key().ToString();
-        if (k.rfind(Keys::agentOrgsPrefix(agentId), 0) != 0) break;
-        std::string rest = k.substr(Keys::agentOrgsPrefix(agentId).size());
-        std::string orgId = rest.substr(0, rest.find(':'));
-        auto m = getMembership(orgId, agentId);
-        if (m) out.push_back(*m);
+    for (int b = 0; b < Keys::kBucketCount; ++b) {
+        const std::string prefix = Keys::agentOrgsPrefixIn(b, agentId);
+        for (iter->Seek(prefix); iter->Valid(); iter->Next()) {
+            std::string k = iter->key().ToString();
+            if (k.rfind(prefix, 0) != 0) break;
+            std::string rest = k.substr(prefix.size());
+            std::string orgId = rest.substr(0, rest.find(':'));
+            auto m = getMembership(orgId, agentId);
+            if (m) hits.push_back({orgId, std::move(*m)});
+        }
     }
+    std::sort(hits.begin(), hits.end(),
+              [](const Hit& a, const Hit& c) { return a.orgId < c.orgId; });
+    std::vector<Membership> out;
+    out.reserve(hits.size());
+    for (auto& h : hits) out.push_back(std::move(h.m));
     return out;
 }
 

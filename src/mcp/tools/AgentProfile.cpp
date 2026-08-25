@@ -17,7 +17,7 @@ ToolDef defUpdateAgent() {
                                 {});
         },
         [](ToolContext& tc, const Json::Value& args) -> Result<Json::Value> {
-            auto agentOpt = tc.app.agents->get(tc.agent->agent_id);
+            auto agentOpt = tc.app.identity->getProfile(tc.agent->agent_id);
             if (!agentOpt) return RpcError::unauthorized("Agent not found");
 
             Agent& a = *agentOpt;
@@ -42,7 +42,7 @@ ToolDef defUpdateAgent() {
                 a.tags = Codec::tagsFromJson(args["tags"]);
             }
             a.updated_at = tc.app.clock->nowSec();
-            tc.app.agents->put(a);
+            tc.app.identity->putProfile(a);
 
             Json::Value profile;
             profile["agent_id"] = a.agent_id;
@@ -69,11 +69,11 @@ ToolDef defGetAgent() {
         [](ToolContext& tc, const Json::Value& args) -> Result<Json::Value> {
             auto agentId = argUuid(args, "agent_id");
             if (!agentId.ok()) return agentId.error();
-            auto agentOpt = tc.app.agents->get(agentId.value());
+            auto agentOpt = tc.app.identity->getProfile(agentId.value());
             if (!agentOpt) return RpcError::notFound("Agent", agentId.value());
 
             Json::Value orgsArr(Json::arrayValue);
-            for (const auto& m : tc.app.orgs->listOrgsOfAgent(agentId.value())) {
+            for (const auto& m : tc.app.identity->listOrgsOfAgent(agentId.value())) {
                 auto orgOpt = tc.app.orgs->get(m.org_id);
                 Json::Value item;
                 item["org_id"] = m.org_id;

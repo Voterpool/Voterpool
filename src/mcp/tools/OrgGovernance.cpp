@@ -11,8 +11,6 @@ ToolDef defLeaveOrganization() {
             auto orgId = argUuid(args, "org_id");
             if (!orgId.ok()) return orgId.error();
 
-            // Org-лок сериализует подсчёт админов и декремент
-            // total_voting_power с конкурентными мутациями (design D5).
             auto orgLock = tc.app.orgLocks.acquire(orgId.value());
             auto orgOpt = tc.app.orgs->get(orgId.value());
             if (!orgOpt || orgOpt->status == OrgStatus::DISSOLVED)
@@ -20,8 +18,6 @@ ToolDef defLeaveOrganization() {
 
             auto m = tc.app.orgs->getMembership(orgId.value(), tc.agent->agent_id);
             if (!m) {
-                // Единый ответ с DISSOLVED-веткой: не-участник не отличает
-                // отсутствие членства от роспуска организации (organizations).
                 return RpcError::notFound("Organization", orgId.value());
             }
             if (m->role == MemberRole::ADMIN) {
@@ -38,7 +34,7 @@ ToolDef defLeaveOrganization() {
             double power = m->voting_power;
             bool wasActive = m->status == MemberStatus::ACTIVE;
             std::int64_t now = tc.app.clock->nowSec();
-            tc.app.orgs->deleteMembership(batch, orgId.value(), tc.agent->agent_id);
+            tc.app.identity->removeMembershipLink(batch, orgId.value(), tc.agent->agent_id);
             Organization updated = *orgOpt;
             if (wasActive) updated.total_voting_power -= power;
             updated.updated_at = now;
@@ -49,7 +45,7 @@ ToolDef defLeaveOrganization() {
             ev["org_id"] = orgId.value();
             ev["agent_id"] = tc.agent->agent_id;
             ev["new_total_voting_power"] = updated.total_voting_power;
-            tc.app.hub->deliver(SseEvent{orgId.value(), "member_left", Codec::dump(ev)});
+            tc.app.events->deliver(SseEvent{orgId.value(), "member_left", Codec::dump(ev)});
 
             Json::Value out;
             out["org_id"] = orgId.value();
@@ -73,8 +69,6 @@ ToolDef defTransferAdmin() {
             auto target = argUuid(args, "target_agent_id");
             if (!target.ok()) return target.error();
 
-            // Org-лок сериализует смену ролей: инвариант «ровно один админ»
-            // не должен нарушаться конкурентными transfer/leave (design D5).
             auto orgLock = tc.app.orgLocks.acquire(orgId.value());
 
             auto orgOpt = tc.app.orgs->get(orgId.value());
@@ -98,8 +92,8 @@ ToolDef defTransferAdmin() {
             targetM->updated_at = now;
 
             rocksdb::WriteBatch batch;
-            tc.app.orgs->putMembership(batch, requester.value());
-            tc.app.orgs->putMembership(batch, *targetM);
+            tc.app.identity->recordMembershipLink(batch, requester.value());
+            tc.app.identity->recordMembershipLink(batch, *targetM);
 
             AuditEvent ae;
             ae.action = "ADMIN_TRANSFERRED";
@@ -114,7 +108,7 @@ ToolDef defTransferAdmin() {
             ev["org_id"] = orgId.value();
             ev["previous_admin_id"] = tc.agent->agent_id;
             ev["new_admin_id"] = target.value();
-            tc.app.hub->deliver(SseEvent{orgId.value(), "admin_transferred", Codec::dump(ev)});
+            tc.app.events->deliver(SseEvent{orgId.value(), "admin_transferred", Codec::dump(ev)});
 
             Json::Value out;
             out["org_id"] = orgId.value();

@@ -55,11 +55,11 @@ ToolDef defSearchOrganizations() {
             std::set<std::string> candidates;
             bool haveCandidateSet = false;
             if (!query.empty()) {
-                candidates = tc.app.orgNames->matchQuery(query);
+                candidates = tc.app.directory->matchName(query);
                 haveCandidateSet = true;
             }
             for (const auto& t : tags) {
-                auto s = tc.app.indexes->scanTag(t);
+                auto s = tc.app.directory->scanTag(t);
                 if (haveCandidateSet) {
                     std::set<std::string> inter;
                     for (const auto& id : s) {
@@ -72,7 +72,7 @@ ToolDef defSearchOrganizations() {
                 }
             }
             if (!category.empty()) {
-                auto s = tc.app.indexes->scanCategory(category);
+                auto s = tc.app.directory->scanCategory(category);
                 if (haveCandidateSet) {
                     std::set<std::string> inter;
                     for (const auto& id : s) {
@@ -103,7 +103,7 @@ ToolDef defSearchOrganizations() {
 
             Json::Value items(Json::arrayValue);
             std::string nextCursor;
-            for (const auto& orgId : tc.app.indexes->scanFeedActive()) {
+            for (const auto& orgId : tc.app.directory->scanFeedActive()) {
                 if (cursorRev >= 0) {
                     auto orgOpt = tc.app.orgs->get(orgId);
                     std::int64_t rev = orgOpt ? Keys::reverseTs(orgOpt->created_at) : -1;

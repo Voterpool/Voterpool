@@ -64,6 +64,10 @@ struct LoggingConfig {
     std::string log_file;
 };
 
+struct ClusterConfig {
+    std::string mode = "standalone";
+};
+
 struct RateLimitConfig {
     bool enabled = false;
     int rps_per_agent = 50;
@@ -79,6 +83,7 @@ struct AppConfig {
     McpConfig mcp;
     LoggingConfig logging;
     RateLimitConfig rate_limit;
+    ClusterConfig cluster;
 
     static AppConfig load(int argc, char** argv);
     void validate() const;

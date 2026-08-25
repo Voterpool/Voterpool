@@ -64,6 +64,10 @@ void SseHub::pruneLocked() {
 }
 
 void SseHub::deliver(const SseEvent& event) {
+    {
+        std::lock_guard<std::mutex> lk(recordMutex_);
+        if (recordedForTests_.size() < 4096) recordedForTests_.push_back(event);
+    }
     std::vector<StreamHolder> targets;
     {
         std::lock_guard lock(mutex_);
@@ -83,6 +87,11 @@ void SseHub::deliver(const SseEvent& event) {
         std::lock_guard lock(mutex_);
         pruneLocked();
     }
+}
+
+std::vector<SseEvent> SseHub::eventsForTests() const {
+    std::lock_guard<std::mutex> lk(recordMutex_);
+    return recordedForTests_;
 }
 
 void SseHub::heartbeat() {

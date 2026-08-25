@@ -76,6 +76,9 @@ void applyYaml(AppConfig& c, const YAML::Node& root) {
         if (n["protocol_version"]) c.mcp.protocol_version = n["protocol_version"].as<std::string>();
         if (n["tools_list_cache_ttl_ms"]) c.mcp.tools_list_cache_ttl_ms = n["tools_list_cache_ttl_ms"].as<std::uint64_t>();
     }
+    if (auto n = sec("cluster"); n && n.IsMap()) {
+        if (n["mode"]) c.cluster.mode = n["mode"].as<std::string>();
+    }
     if (auto n = sec("logging"); n && n.IsMap()) {
         if (n["level"]) c.logging.level = n["level"].as<std::string>();
         if (n["format"]) c.logging.format = n["format"].as<std::string>();
@@ -229,6 +232,9 @@ void AppConfig::validate() const {
         throw ConfigError("auth.mode must be NATIVE or OIDC");
     if (auth.mode == "OIDC")
         throw ConfigError("OIDC auth mode is not available in the On-Premises (Self-Hosted) edition");
+    if (cluster.mode != "standalone")
+        throw ConfigError("cluster.mode must be \"standalone\" at this stage; got \"" +
+                          cluster.mode + "\"");
     if (sse.heartbeat_interval_sec <= 0)
         throw ConfigError("sse.heartbeat_interval_sec must be > 0");
     if (mcp.protocol_version.empty())

@@ -240,7 +240,7 @@ MetaAuthStatus authenticateViaMeta(AppContext& app, const Json::Value& root, Age
         auth["bearer"].asString().empty()) {
         return MetaAuthStatus::Invalid;
     }
-    auto ctx = app.authProvider->validate(auth["bearer"].asString());
+    auto ctx = app.identity->resolveToken(auth["bearer"].asString());
     if (!ctx) return MetaAuthStatus::Invalid;
     out = *ctx;
     return MetaAuthStatus::Ok;

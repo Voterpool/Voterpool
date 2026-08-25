@@ -205,3 +205,18 @@ TEST(Config, SslEnabledWithoutReadableCertOrKeyIsFatal) {
     fs::remove(cert);
     fs::remove(key);
 }
+
+TEST(Config, ClusterModeDefaultsToStandaloneAndRejectsUnknown) {
+    AppConfig c;
+    EXPECT_EQ(c.cluster.mode, "standalone");
+    EXPECT_NO_THROW(c.validate());
+
+    AppConfig bad;
+    bad.cluster.mode = "cluster";
+    try {
+        bad.validate();
+        FAIL() << "expected ConfigError for cluster.mode=cluster";
+    } catch (const ConfigError& e) {
+        EXPECT_NE(std::string(e.what()).find("cluster.mode"), std::string::npos);
+    }
+}

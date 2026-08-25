@@ -13,12 +13,13 @@
 
 namespace voterpool {
 
-class SseHub;
 class ConsensusEngine;
+namespace scaling { class IEventBus; }
 
 class Workers {
 public:
-    Workers(const AppConfig& cfg, IClock& clock, SseHub& hub, std::function<void(std::int64_t)> ttlTick);
+    Workers(const AppConfig& cfg, IClock& clock, scaling::IEventBus& bus,
+            std::function<void(std::int64_t)> ttlTick);
     ~Workers();
 
     void start();
@@ -33,7 +34,7 @@ private:
 
     AppConfig cfg_;
     IClock& clock_;
-    SseHub& hub_;
+    scaling::IEventBus& bus_;
     std::function<void(std::int64_t)> ttlTick_;
 
     class QueueImpl;

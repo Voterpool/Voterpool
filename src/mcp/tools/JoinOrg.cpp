@@ -71,7 +71,7 @@ ToolDef defJoinOrganization() {
                 m.updated_at = now;
 
                 rocksdb::WriteBatch batch;
-                tc.app.orgs->putMembership(batch, m);
+                tc.app.identity->recordMembershipLink(batch, m);
                 tc.app.indexes->incrementJoinLimit(batch, orgId.value(), now);
                 Organization updated = *orgOpt;
                 updated.total_voting_power += power;
@@ -85,7 +85,7 @@ ToolDef defJoinOrganization() {
                 ev["role"] = "MEMBER";
                 ev["voting_power"] = power;
                 ev["new_total_voting_power"] = updated.total_voting_power;
-                tc.app.hub->deliver(SseEvent{orgId.value(), "member_joined", Codec::dump(ev)});
+                tc.app.events->deliver(SseEvent{orgId.value(), "member_joined", Codec::dump(ev)});
 
                 Json::Value out;
                 out["org_id"] = orgId.value();
@@ -106,7 +106,7 @@ ToolDef defJoinOrganization() {
             m.updated_at = now;
 
             rocksdb::WriteBatch batch;
-            tc.app.orgs->putMembership(batch, m);
+            tc.app.identity->recordMembershipLink(batch, m);
             tc.app.indexes->addPending(batch, orgId.value(), tc.agent->agent_id, std::to_string(now));
             if (!tc.app.db->commit(batch)) return RpcError::internal("Storage write failed");
 
@@ -114,7 +114,7 @@ ToolDef defJoinOrganization() {
             req["org_id"] = orgId.value();
             req["agent_id"] = tc.agent->agent_id;
             req["requested_at"] = static_cast<Json::Int64>(now);
-            tc.app.hub->deliver(SseEvent{orgId.value(), "join_requested", Codec::dump(req)});
+            tc.app.events->deliver(SseEvent{orgId.value(), "join_requested", Codec::dump(req)});
 
             Json::Value out;
             out["org_id"] = orgId.value();

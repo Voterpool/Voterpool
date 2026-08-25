@@ -1,0 +1,32 @@
+# Классификация конструкторов ключей Keys.h (task 2.1).
+# scoped = префикс бакета организации; system = системная плоскость/хелпер.
+# Новая inline-функция в Keys.h требует записи здесь, иначе test ломается.
+agent system
+auth system
+proposalLookup system
+org scoped
+membership scoped
+membershipPrefix scoped
+proposal scoped
+proposalPrefix scoped
+vote scoped
+agentOrgs scoped
+agentOrgsPrefixIn scoped
+auditKey scoped
+auditPrefix scoped
+pending scoped
+pendingPrefix scoped
+padTs system
+activeProposal scoped
+activeProposalPrefixIn scoped
+activeProposalEntryIn scoped
+orgFeed scoped
+orgFeedActivePrefixIn scoped
+tagLower system
+tag scoped
+tagPrefixIn scoped
+nameLower system
+category scoped
+categoryPrefixIn scoped
+yyyymmdd system
+joinLimit scoped
