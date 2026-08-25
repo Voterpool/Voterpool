@@ -26,6 +26,7 @@ VCPKG_DIR="${VCPKG_ROOT:-}"
 WITH_TESTS="auto"       # auto | yes | no  (auto = ON)
 RUN_TESTS=0
 ASSUME_YES=0
+NONINTERACTIVE=0
 DO_CLEAN=0
 
 DROGON_TAG="v1.9.6"
@@ -60,6 +61,14 @@ Usage: ./build.sh [options]
 EOF
 }
 
+suggest_option() {
+  local cand="${1#-}"; cand="${cand#-}"
+  case "$cand" in
+    debug|jobs|tests|no-tests|run-tests|system-deps|vcpkg|install-deps|clean|yes|help)
+      printf " (did you mean --%s?)" "$cand" ;;
+  esac
+}
+
 while [ $# -gt 0 ]; do
   case "$1" in
     --debug) BUILD_TYPE="Debug" ;;
@@ -76,7 +85,7 @@ while [ $# -gt 0 ]; do
     --clean) DO_CLEAN=1 ;;
     -y|--yes) ASSUME_YES=1; NONINTERACTIVE=1 ;;
     -h|--help) usage; exit 0 ;;
-    *) err "Unknown option: $1"; usage; exit 1 ;;
+    *) err "Unknown option: $1$(suggest_option "$1")"; usage; exit 1 ;;
   esac
   shift
 done
@@ -84,7 +93,10 @@ done
 ask() {
   local q="$1" def="${2:-Y}" ans
   if [ "$NONINTERACTIVE" = "1" ]; then REPLY="$def"; return 0; fi
-  read -r -p "$q [$def]: " ans </dev/tty
+  if ! read -r -p "$q [$def]: " ans </dev/tty; then
+    err "Interactive input unavailable (no terminal); rerun with --yes."
+    exit 1
+  fi
   REPLY="${ans:-$def}"
   return 0
 }
@@ -92,7 +104,7 @@ ask() {
 confirm() { local def="$2"; ask "$1" "$def"; [[ "$REPLY" =~ ^([Yy]) ]]; }
 
 have() { command -v "$1" >/dev/null 2>&1; }
-sudo_cmd() { if [ "$(id -u)" -eq 0 ]; then ""; else have sudo && echo sudo || echo ""; fi; }
+sudo_cmd() { if [ "$(id -u)" -eq 0 ]; then echo ""; elif have sudo; then echo sudo; fi; }
 
 detect_pm() {
   for pm in apt-get dnf yum pacman zypper apk; do
@@ -108,6 +120,17 @@ if [ -r /etc/os-release ]; then
 fi
 
 PM="$(detect_pm)"
+
+distro_min_version_met() {
+  case "$OS_ID" in
+    debian) local min=12 ;;
+    ubuntu) local min=22 ;;
+    *) return 0 ;;
+  esac
+  local major="${OS_VER%%.*}"
+  case "$major" in ''|*[!0-9]*) return 0 ;; esac
+  [ "$major" -ge "$min" ]
+}
 
 cmake_major_ok() {
   have cmake || return 1
@@ -185,7 +208,7 @@ install_system_packages() {
   log "Distribution: $OS_ID ${OS_VER} (${PM}). Installing dependencies..."
   local s; s="$(sudo_cmd)"
   case "$PM" in
-    apt-get)  $s apt-get update -y && $s DEBIAN_FRONTEND=noninteractive apt-get install -y $pkgs ;;
+    apt-get)  $s apt-get update -y && $s env DEBIAN_FRONTEND=noninteractive apt-get install -y $pkgs ;;
     dnf)      $s dnf install -y $pkgs ;;
     yum)      $s yum install -y $pkgs ;;
     pacman)   $s pacman -Sy --needed --noconfirm $pkgs ;;
@@ -264,6 +287,11 @@ BANNER
     if [ "$INSTALL_DEPS" = "no" ]; then
       err "Install g++ (>=11) or clang++ (>=14) manually."; exit 1
     fi
+    if ! distro_min_version_met; then
+      err "$OS_ID ${OS_VER:-unknown}: distribution repositories cannot provide a C++20 toolchain."
+      err "Use Debian >= 12 or Ubuntu >= 22.04, or install g++ (>=11) / clang++ (>=14) manually."
+      exit 1
+    fi
     confirm "Install the toolchain via $PM?" "Y" || { err "Aborted."; exit 1; }
     install_system_packages || true
     compiler="$(pick_compiler)"
@@ -274,6 +302,11 @@ BANNER
   if ! cmake_major_ok; then
     if [ "$INSTALL_DEPS" = "no" ]; then
       err "cmake >= 3.20 is required."; exit 1
+    fi
+    if ! distro_min_version_met; then
+      err "$OS_ID ${OS_VER:-unknown}: distribution repositories cannot provide cmake >= 3.20."
+      err "Use Debian >= 12 or Ubuntu >= 22.04."
+      exit 1
     fi
     confirm "Upgrade cmake via $PM?" "Y" || { err "Aborted."; exit 1; }
     install_system_packages || true
