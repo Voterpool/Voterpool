@@ -4,6 +4,7 @@
 #include <map>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace voterpool {
 
@@ -53,6 +54,7 @@ struct MetricsConfig {
 
 struct McpConfig {
     std::string protocol_version = "2026-07-28";
+    std::vector<std::string> supported_versions = {"2026-07-28", "2025-06-18", "2025-03-26"};
     std::uint64_t tools_list_cache_ttl_ms = 300000;
 };
 

@@ -2,6 +2,7 @@
 
 #include <yaml-cpp/yaml.h>
 
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -31,6 +32,27 @@ bool envBool(const char* name, bool fallback) {
     if (!v || !*v) return fallback;
     std::string s(v);
     return s == "1" || s == "true" || s == "TRUE" || s == "yes" || s == "on";
+}
+
+std::vector<std::string> envCsvOr(const char* name, const std::vector<std::string>& fallback) {
+    const char* v = std::getenv(name);
+    if (!v || !*v) return fallback;
+    std::vector<std::string> out;
+    std::string item;
+    auto flush = [&] {
+        while (!item.empty() && (item.front() == ' ' || item.front() == '\t')) item.erase(item.begin());
+        while (!item.empty() && (item.back() == ' ' || item.back() == '\t')) item.pop_back();
+        out.push_back(std::move(item));
+        item.clear();
+    };
+    for (const char* p = v; *p; ++p) {
+        if (*p == ',')
+            flush();
+        else
+            item.push_back(*p);
+    }
+    flush();
+    return out;
 }
 
 void applyYaml(AppConfig& c, const YAML::Node& root) {
@@ -74,6 +96,11 @@ void applyYaml(AppConfig& c, const YAML::Node& root) {
     }
     if (auto n = sec("mcp"); n && n.IsMap()) {
         if (n["protocol_version"]) c.mcp.protocol_version = n["protocol_version"].as<std::string>();
+        if (n["supported_versions"] && n["supported_versions"].IsSequence()) {
+            c.mcp.supported_versions.clear();
+            for (const auto& v : n["supported_versions"])
+                c.mcp.supported_versions.push_back(v.as<std::string>());
+        }
         if (n["tools_list_cache_ttl_ms"]) c.mcp.tools_list_cache_ttl_ms = n["tools_list_cache_ttl_ms"].as<std::uint64_t>();
     }
     if (auto n = sec("cluster"); n && n.IsMap()) {
@@ -124,6 +151,8 @@ void applyEnv(AppConfig& c) {
     c.metrics.enabled = envBool("VOTERPOOL_METRICS_ENABLED", c.metrics.enabled);
     c.metrics.path = envOr("VOTERPOOL_METRICS_PATH", c.metrics.path);
     c.mcp.protocol_version = envOr("VOTERPOOL_MCP_PROTOCOL_VERSION", c.mcp.protocol_version);
+    c.mcp.supported_versions =
+        envCsvOr("VOTERPOOL_MCP_SUPPORTED_VERSIONS", c.mcp.supported_versions);
     c.mcp.tools_list_cache_ttl_ms = static_cast<std::uint64_t>(envInt("VOTERPOOL_MCP_TOOLS_LIST_CACHE_TTL_MS", static_cast<long long>(c.mcp.tools_list_cache_ttl_ms)));
     c.logging.level = envOr("VOTERPOOL_LOGGING_LEVEL", c.logging.level);
     c.logging.format = envOr("VOTERPOOL_LOGGING_FORMAT", c.logging.format);
@@ -239,6 +268,14 @@ void AppConfig::validate() const {
         throw ConfigError("sse.heartbeat_interval_sec must be > 0");
     if (mcp.protocol_version.empty())
         throw ConfigError("mcp.protocol_version must not be empty");
+    if (mcp.supported_versions.empty())
+        throw ConfigError("mcp.supported_versions must not be empty");
+    for (const auto& v : mcp.supported_versions)
+        if (v.empty()) throw ConfigError("mcp.supported_versions must not contain empty strings");
+    if (std::find(mcp.supported_versions.begin(), mcp.supported_versions.end(), mcp.protocol_version) ==
+        mcp.supported_versions.end())
+        throw ConfigError("mcp.supported_versions must contain mcp.protocol_version (" +
+                          mcp.protocol_version + ")");
     if (mcp.tools_list_cache_ttl_ms == 0)
         throw ConfigError("mcp.tools_list_cache_ttl_ms must be > 0");
     if (logging.async_queue_size == 0 || (logging.async_queue_size & (logging.async_queue_size - 1)) != 0)

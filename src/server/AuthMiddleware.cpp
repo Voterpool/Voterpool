@@ -8,6 +8,8 @@
 #include <drogon/HttpResponse.h>
 #include <simdjson.h>
 
+#include <algorithm>
+
 namespace voterpool {
 namespace {
 
@@ -37,27 +39,32 @@ std::string bearerToken(const drogon::HttpRequestPtr& req) {
 
 struct BodyProbe {
     std::string method;
+    // Версия протокола: три источника по приоритету — заголовок,
+    // params.protocolVersion (переговоры initialize), params._meta.
     std::string metaVersion;
+    std::string bodyVersion;
+    std::string toolName;
 };
 
-// Лёгкое извлечение method и params._meta[protocolVersion] из тела.
+// Лёгкое извлечение method, версии протокола и имени инструмента из тела.
 // Ошибка парсинга не фатальна: запрос дойдёт до хендлера и получит -32700.
 BodyProbe probeBody(const std::string& body) {
     BodyProbe probe;
     try {
         simdjson::dom::parser parser;
         simdjson::dom::element elem = parser.parse(simdjson::padded_string(body));
-        try {
-            probe.method = std::string(elem.at_pointer("/method").get_string().value());
-        } catch (const simdjson::simdjson_error&) {
-        }
-        try {
-            probe.metaVersion =
-                std::string(elem.at_pointer("/params/_meta/io.modelcontextprotocol~1protocolVersion")
-                                .get_string()
-                                .value());
-        } catch (const simdjson::simdjson_error&) {
-        }
+        auto getString = [&](const char* pointer) -> std::string {
+            try {
+                return std::string(elem.at_pointer(pointer).get_string().value());
+            } catch (const simdjson::simdjson_error&) {
+                return {};
+            }
+        };
+        probe.method = getString("/method");
+        probe.metaVersion =
+            getString("/params/_meta/io.modelcontextprotocol~1protocolVersion");
+        probe.bodyVersion = getString("/params/protocolVersion");
+        probe.toolName = getString("/params/name");
     } catch (const simdjson::simdjson_error&) {
     }
     return probe;
@@ -107,7 +114,7 @@ void AuthMiddleware::handle(const drogon::HttpRequestPtr& req, AdviceCallback&& 
     if (isMcpPost) {
         const std::string hdrVersion = req->getHeader("MCP-Protocol-Version");
         const std::string mcpMethod = req->getHeader("Mcp-Method");
-        mcpName = req->getHeader("Mcp-Name");
+        const std::string hdrToolName = req->getHeader("Mcp-Name");
         const BodyProbe probe = probeBody(std::string(req->getBody()));
         mwMethod = probe.method;
 
@@ -115,35 +122,56 @@ void AuthMiddleware::handle(const drogon::HttpRequestPtr& req, AdviceCallback&& 
             mwLog(false, -32600, mcpName.empty() ? "-" : mcpName);
             mcp::RpcError e{-32600, "Invalid Request", Json::Value()};
             e.data["reason"] = reason;
-            e.data["supportedVersions"].append(app_.config.mcp.protocol_version);
+            for (const auto& v : app_.config.mcp.supported_versions)
+                e.data["supportedVersions"].append(v);
             MetricsRegistry::instance().incCounter("voterpool_rpc_errors_total", {{"code", "-32600"}});
             respond(jsonRpcErrorBody(e.code, e.message, e.data, drogon::k200OK));
         };
 
-        // Неразборчивое тело протокол не нарушает: предварительные проверки
-        // пропускаются, запрос доходит до хендлера и получает -32700 + HTTP 400
-        // независимо от заголовков Mcp-Method/Mcp-Name/MCP-Protocol-Version.
-        if (!probe.method.empty()) {
-            // Версия протокола: заголовок приоритетен, при его отсутствии — _meta.
-            const std::string effectiveVersion = !hdrVersion.empty() ? hdrVersion : probe.metaVersion;
-            if (effectiveVersion != app_.config.mcp.protocol_version) {
-                rejectProtocol("Unsupported protocol version");
-                return;
-            }
-            if (!hdrVersion.empty() && !probe.metaVersion.empty() && hdrVersion != probe.metaVersion) {
-                rejectProtocol("MCP-Protocol-Version header does not match _meta protocolVersion");
-                return;
-            }
+       
+        if (!probe.method.empty() && probe.method.rfind("notifications/", 0) != 0) {
+            const bool toolCall = probe.method == "tools/call" || isToolName(probe.method);
+           
+            std::string bodyToolName;
+            if (toolCall) bodyToolName = probe.method == "tools/call" ? probe.toolName : probe.method;
+            mcpName = !hdrToolName.empty() ? hdrToolName : bodyToolName;
 
-            // Mcp-Method обязан совпадать с методом тела; для вызовов инструментов
-            // дополнительно требуется Mcp-Name.
-            if (mcpMethod != probe.method) {
+            if (!mcpMethod.empty() && mcpMethod != probe.method) {
                 rejectProtocol("Mcp-Method header does not match request method");
                 return;
             }
-            const bool toolCall = probe.method == "tools/call" || isToolName(probe.method);
-            if (toolCall && mcpName.empty()) {
-                rejectProtocol("Mcp-Name header is required for tool calls");
+            if (toolCall && !hdrToolName.empty() && !bodyToolName.empty() &&
+                hdrToolName != bodyToolName) {
+                rejectProtocol("Mcp-Name header does not match requested tool");
+                return;
+            }
+
+            if (!hdrVersion.empty() && !probe.metaVersion.empty() &&
+                hdrVersion != probe.metaVersion) {
+                rejectProtocol(
+                    "MCP-Protocol-Version header does not match _meta protocolVersion");
+                return;
+            }
+            if (!hdrVersion.empty() && !probe.bodyVersion.empty() &&
+                hdrVersion != probe.bodyVersion) {
+                rejectProtocol(
+                    "MCP-Protocol-Version header does not match params.protocolVersion");
+                return;
+            }
+            if (!probe.bodyVersion.empty() && !probe.metaVersion.empty() &&
+                probe.bodyVersion != probe.metaVersion) {
+                rejectProtocol("params.protocolVersion does not match _meta protocolVersion");
+                return;
+            }
+            const std::string& declared =
+                !hdrVersion.empty()
+                    ? hdrVersion
+                    : (!probe.bodyVersion.empty() ? probe.bodyVersion : probe.metaVersion);
+            // initialize согласует версию ответом (эхо/fallback), а не отказом.
+            const auto& supported = app_.config.mcp.supported_versions;
+            if (!declared.empty() && probe.method != "initialize" &&
+                std::find(supported.begin(), supported.end(), declared) == supported.end()) {
+                rejectProtocol("Unsupported protocol version");
                 return;
             }
         }

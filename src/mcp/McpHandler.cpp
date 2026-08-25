@@ -199,7 +199,7 @@ Json::Value discoverResponse(AppContext& app) {
     Json::Value out;
     out["resultType"] = "complete";
     out["supportedVersions"] = Json::Value(Json::arrayValue);
-    out["supportedVersions"].append(app.config.mcp.protocol_version);
+    for (const auto& v : app.config.mcp.supported_versions) out["supportedVersions"].append(v);
     out["capabilities"]["tools"] = Json::Value(Json::objectValue);
     Json::Value ext;
     ext["endpoint"] = "/mcp/events";
@@ -208,6 +208,28 @@ Json::Value discoverResponse(AppContext& app) {
     out["_meta"]["io.modelcontextprotocol/serverInfo"]["version"] = "1.0.0";
     out["ttlMs"] = 3600000;
     out["cacheScope"] = "public";
+    return out;
+}
+
+Json::Value initializeResponse(AppContext& app, const Json::Value& params) {
+    std::string requested;
+    if (params.isObject() && params.isMember("protocolVersion") &&
+        params["protocolVersion"].isString())
+        requested = params["protocolVersion"].asString();
+    const auto& supported = app.config.mcp.supported_versions;
+    const bool known =
+        !requested.empty() &&
+        std::find(supported.begin(), supported.end(), requested) != supported.end();
+
+        const std::string negotiated = known ? requested : app.config.mcp.protocol_version;
+
+    Json::Value out;
+    out["protocolVersion"] = negotiated;
+    out["capabilities"]["tools"]["listChanged"] = false;
+    out["serverInfo"]["name"] = "voterpool";
+    out["serverInfo"]["version"] = "1.0.0";
+    for (const auto& v : supported)
+        out["_meta"]["io.voterpool/supportedVersions"].append(v);
     return out;
 }
 
@@ -302,11 +324,18 @@ void handleMcpPost(AppContext& app, const drogon::HttpRequestPtr& req,
         callback(jsonResponse(errorBody(id, kErrInvalidRequest, "Invalid Request", Json::Value()), drogon::k200OK));
         return;
     }
-    const std::string method = root["method"].asString();
+    const std::string method = root.isObject() && root.isMember("method") && root["method"].isString()
+                                   ? root["method"].asString()
+                                   : std::string();
 
-    // Резервный канал авторизации: заголовок имеет приоритет; _meta читается
-    // только когда middleware не вставил контекст по заголовку. Невалидный
-    // _meta-токен отклоняется сразу (паритет с невалидным заголовком).
+    if (root.isObject() && !root.isMember("id")) {
+        recordRequestMetrics("notifications", "_notification", true, makeLogCtx(true, 0));
+        auto resp = drogon::HttpResponse::newHttpResponse();
+        resp->setStatusCode(drogon::k202Accepted);
+        callback(resp);
+        return;
+    }
+
     std::optional<AgentContext> metaCtx;
     if (!agent) {
         AgentContext resolved;
@@ -326,6 +355,16 @@ void handleMcpPost(AppContext& app, const drogon::HttpRequestPtr& req,
     if (method == "server/discover") {
         recordRequestMetrics(method, "server/discover", true, makeLogCtx(true, 0));
         callback(jsonResponse(structuredResultBody(id, discoverResponse(app)), drogon::k200OK));
+        MetricsRegistry::instance().observe(
+            "voterpool_http_request_duration_seconds",
+            std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count());
+        return;
+    }
+    if (method == "initialize") {
+        const Json::Value& params =
+            root.isMember("params") ? root["params"] : Json::Value(Json::objectValue);
+        recordRequestMetrics("initialize", "initialize", true, makeLogCtx(true, 0));
+        callback(jsonResponse(structuredResultBody(id, initializeResponse(app, params)), drogon::k200OK));
         MetricsRegistry::instance().observe(
             "voterpool_http_request_duration_seconds",
             std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count());

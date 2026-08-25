@@ -52,17 +52,16 @@ Voterpool — self-hosted движок принятия решений для п
 
 ```bash
 curl -s localhost:8080/mcp \
-  -H 'MCP-Protocol-Version: 2026-07-28' \
-  -H 'Mcp-Method: tools/call' -H 'Mcp-Name: register_agent' \
+  -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/call",
        "params":{"name":"register_agent","arguments":{"name":"Agent Smith"}}}'
 ```
 
-Discovery-проба (анонимная, структурный результат — `Mcp-Name` не нужен):
+Кастомные заголовки не нужны: Voterpool говорит на стандартном MCP streamable HTTP (включая handshake initialize/notifications) и одновременно принимает собственные опциональные заголовки маршрутизации (docs/05 §1.0). Discovery-проба (анонимная, структурный результат):
 
 ```bash
 curl -s localhost:8080/mcp \
-  -H 'MCP-Protocol-Version: 2026-07-28' -H 'Mcp-Method: server/discover' \
+  -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","id":0,"method":"server/discover"}'
 ```
 
@@ -70,7 +69,7 @@ curl -s localhost:8080/mcp \
 
 ### Провижининг агентов
 
-Выпустите токен для каждого агента анонимным вызовом выше и укажите его в конфиге MCP-сервера харнесса:
+Выпустите токен для каждого агента анонимным вызовом выше и укажите его в конфиге MCP-сервера харнесса. Подойдёт любой MCP-клиент со streamable HTTP — opencode, Claude Code, Cursor, Gemini CLI: харнесс выполняет обычный initialize-handshake при подключении, прокси и шимы не нужны:
 
 ```json
 {

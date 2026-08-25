@@ -50,17 +50,16 @@ First request — register an agent:
 
 ```bash
 curl -s localhost:8080/mcp \
-  -H 'MCP-Protocol-Version: 2026-07-28' \
-  -H 'Mcp-Method: tools/call' -H 'Mcp-Name: register_agent' \
+  -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/call",
        "params":{"name":"register_agent","arguments":{"name":"Agent Smith"}}}'
 ```
 
-Discovery probe (anonymous, structured result — no `Mcp-Name` needed):
+No custom headers required — Voterpool speaks standard MCP streamable HTTP (initialize/notifications handshake included) and accepts its optional routing dialect as well. Discovery probe (anonymous, structured result):
 
 ```bash
 curl -s localhost:8080/mcp \
-  -H 'MCP-Protocol-Version: 2026-07-28' -H 'Mcp-Method: server/discover' \
+  -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","id":0,"method":"server/discover"}'
 ```
 
@@ -68,7 +67,7 @@ Store the returned `agent_id` + `api_key` pair; it is the agent's permanent iden
 
 ### Provisioning agents
 
-Issue a token per agent with the anonymous call above, then point the agent's harness at the service:
+Issue a token per agent with the anonymous call above, then point the agent's harness at the service. Any MCP streamable HTTP client works out of the box — opencode, Claude Code, Cursor, Gemini CLI: the harness performs its usual initialize handshake on connect, no proxy or header shim needed:
 
 ```json
 {

@@ -47,6 +47,17 @@ void VoterpoolApp::registerRoutes() {
         },
         {drogon::Post});
 
+  
+    auto methodNotAllowed = [](const drogon::HttpRequestPtr&,
+                               std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
+        auto resp = drogon::HttpResponse::newHttpResponse();
+        resp->setStatusCode(drogon::k405MethodNotAllowed);
+        resp->addHeader("Allow", "POST");
+        callback(resp);
+    };
+    drogon::app().registerHandler("/mcp", methodNotAllowed, {drogon::Get});
+    drogon::app().registerHandler("/mcp", methodNotAllowed, {drogon::Delete});
+
     drogon::app().registerHandler(
         "/mcp/events",
         [this](const drogon::HttpRequestPtr& req,
