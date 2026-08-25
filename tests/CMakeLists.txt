@@ -81,6 +81,9 @@ target_include_directories(voterpool_e2e_shutdown PRIVATE ${CMAKE_CURRENT_SOURCE
 add_executable(voterpool_hot_path_bench EXCLUDE_FROM_ALL bench/hot_path_bench.cpp)
 target_link_libraries(voterpool_hot_path_bench PRIVATE voterpool_core)
 
+add_executable(voterpool_bench EXCLUDE_FROM_ALL bench/voterpool_bench.cpp)
+target_link_libraries(voterpool_bench PRIVATE voterpool_core)
+
 find_package(Python3 COMPONENTS Interpreter QUIET)
 if(Python3_FOUND)
     add_test(
