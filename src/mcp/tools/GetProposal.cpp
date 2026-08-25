@@ -8,7 +8,7 @@ ToolDef defGetProposal() {
         "Fetch the full card of a single proposal by proposal_id: status, aggregated powers, "
         "timestamps, applied action/config_delta flags and (for ACTIVE members) the complete "
         "vote list with each agent's decision and power at vote",
-        [] { return schemaObject({{"proposal_id", Json::Value("string")}}, {"proposal_id"}); },
+        [] { return schemaObject({{"proposal_id", schemaString()}}, {"proposal_id"}); },
         [](ToolContext& tc, const Json::Value& args) -> Result<Json::Value> {
             auto proposalId = argUuid(args, "proposal_id");
             if (!proposalId.ok()) return proposalId.error();
@@ -41,10 +41,9 @@ ToolDef defGetProposal() {
             out["created_at"] = static_cast<Json::Int64>(p->created_at);
             out["expires_at"] = static_cast<Json::Int64>(p->expires_at);
             out["updated_at"] = static_cast<Json::Int64>(p->updated_at);
-            out["config_delta_applied"] =
-                p->status == ProposalStatus::PASSED && p->config_delta.has_value();
+            out["config_delta_applied"] = p->config_delta_applied;
             out["action_applied"] = Json::Value(Json::nullValue);
-            if (p->status == ProposalStatus::PASSED && p->action.has_value()) {
+            if (p->action_applied && p->action) {
                 out["action_applied"] = toString(p->action->kind);
             }
             if (p->config_delta) out["config_delta"] = Codec::orgConfigToJson(*p->config_delta);

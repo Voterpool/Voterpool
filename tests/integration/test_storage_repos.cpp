@@ -47,6 +47,44 @@ TEST(StorageRepos, OrgAndMembershipRoundTrip) {
     EXPECT_EQ(orgsOfCreator[0].org_id, orgId);
 }
 
+TEST(StorageRepos, ReverseIndexTracksPendingActiveAndRemoval) {
+    auto h = Harness::create();
+    AgentContext creator = h->registerAgent("rev-idx-admin");
+    AgentContext member = h->registerAgent("rev-idx-member");
+    Json::Value orgOut = createOrg(*h, creator, "Reverse Org", "CLOSED", orgConfigArgs("MAJORITY", 300));
+    ASSERT_FALSE(h->isError(orgOut));
+    std::string orgId = orgOut["org_id"].asString();
+
+    Membership m;
+    m.org_id = orgId;
+    m.agent_id = member.agent_id;
+    m.role = MemberRole::MEMBER;
+    m.voting_power = 1.0;
+    m.status = MemberStatus::PENDING;
+    m.created_at = h->clock.nowSec();
+    m.updated_at = m.created_at;
+
+    // PENDING сразу виден в обратном индексе (agent-identity: профиль с членствами).
+    ASSERT_TRUE(h->app->orgs->putMembership(m));
+    auto listed = h->app->orgs->listOrgsOfAgent(member.agent_id);
+    ASSERT_EQ(listed.size(), 1u);
+    EXPECT_EQ(listed[0].org_id, orgId);
+    EXPECT_EQ(listed[0].status, MemberStatus::PENDING);
+
+    // Переход PENDING -> ACTIVE не создаёт дубль.
+    m.status = MemberStatus::ACTIVE;
+    m.updated_at = h->clock.nowSec();
+    ASSERT_TRUE(h->app->orgs->putMembership(m));
+    listed = h->app->orgs->listOrgsOfAgent(member.agent_id);
+    ASSERT_EQ(listed.size(), 1u);
+    EXPECT_EQ(listed[0].status, MemberStatus::ACTIVE);
+
+    // Удаление членства чистит обе записи (cf_memberships и cf_agent_orgs).
+    ASSERT_TRUE(h->app->orgs->deleteMembership(m));
+    EXPECT_TRUE(h->app->orgs->listOrgsOfAgent(member.agent_id).empty());
+    EXPECT_FALSE(h->app->orgs->getMembership(orgId, member.agent_id).has_value());
+}
+
 TEST(StorageRepos, BatchOrgPutVisibleOnlyAfterCommit) {
     auto h = Harness::create();
     AgentContext creator = h->registerAgent("batch-org");

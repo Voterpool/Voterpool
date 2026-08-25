@@ -18,17 +18,17 @@ ToolDef defCreateProposal() {
         "Create a proposal (STANDARD, or ACTION with kind APPROVE_MEMBER | UPDATE_ORG_INFO); optionally carry config_delta",
         [] {
             Json::Value configDelta = schemaObject(
-                {{"consensus_model", Json::Value("string")},
-                 {"quorum_percentage", Json::Value("integer")},
-                 {"voting_duration_sec", Json::Value("integer")},
-                 {"power_distribution", Json::Value("string")}},
+                {{"consensus_model", schemaString()},
+                 {"quorum_percentage", schemaInteger()},
+                 {"voting_duration_sec", schemaInteger()},
+                 {"power_distribution", schemaString()}},
                 {});
             return schemaObject(
-                {{"org_id", Json::Value("string")},
-                 {"title", Json::Value("string")},
-                 {"description", Json::Value("string")},
+                {{"org_id", schemaString()},
+                 {"title", schemaString()},
+                 {"description", schemaString()},
                  {"config_delta", std::move(configDelta)},
-                 {"action", Json::Value("object")}},
+                 {"action", schemaObjectValue()}},
                 {"org_id", "title"});
         },
         [](ToolContext& tc, const Json::Value& args) -> Result<Json::Value> {
@@ -37,6 +37,10 @@ ToolDef defCreateProposal() {
             auto title = argString(args, "title");
             if (!title.ok()) return title.error();
 
+            // Org-лок: статус организации и согласованный снимок T/H читаются
+            // под локом, вставка атомарна относительно роспуска и мутаций
+            // состава (design D5). Быстрые проверки до лока — только fast-path.
+            auto orgLock = tc.app.orgLocks.acquire(orgId.value());
             auto orgOpt = tc.app.orgs->get(orgId.value());
             if (!orgOpt) return RpcError::notFound("Organization", orgId.value());
             if (orgOpt->status == OrgStatus::DISSOLVED)
@@ -60,7 +64,7 @@ ToolDef defCreateProposal() {
             p.config_at_creation = orgOpt->config;
 
             if (hasDelta) {
-                auto delta = parseOrgConfig(args["config_delta"], true);
+                auto delta = parseOrgConfig(args["config_delta"], true, &orgOpt->config);
                 if (!delta.ok()) return delta.error();
                 p.config_delta = delta.value();
                 p.type = ProposalType::STANDARD;

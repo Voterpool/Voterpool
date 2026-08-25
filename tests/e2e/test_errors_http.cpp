@@ -153,6 +153,39 @@ TEST(E2eErrors, ParseErrorMapsToHttp400) {
     EXPECT_TRUE(out["id"].isNull());
 }
 
+TEST(E2eErrors, BrokenBodyWithAnyMcpMethodReachesHandlerAsParseError) {
+    // Неразборчивое тело с Mcp-Method: server/discover не режется middleware
+    // как -32600: parse error доходит до хендлера (-32700 + HTTP 400).
+    HttpResponse resp = HttpUtil::request(E2eEnv::instance().host(), E2eEnv::instance().port(), "POST",
+                                          "/mcp",
+                                          {{"Content-Type", "application/json"},
+                                           {"MCP-Protocol-Version", "2026-07-28"},
+                                           {"Mcp-Method", "server/discover"}},
+                                          "{{{not-json");
+    EXPECT_EQ(resp.status, 400);
+    Json::Value out = parseJson(resp.body);
+    EXPECT_EQ(out["error"]["code"].asInt(), -32700);
+    EXPECT_TRUE(out["id"].isNull());
+}
+
+TEST(E2eErrors, HeaderViolationsStillRejectedWithInvalidRequest) {
+    // Валидный JSON с нарушением заголовков по-прежнему отклоняется на уровне
+    // протокола (-32600), это не parse error.
+    Json::Value body;
+    body["jsonrpc"] = "2.0";
+    body["id"] = 7;
+    body["method"] = "server/discover";
+    HttpResponse resp = HttpUtil::postJson(E2eEnv::instance().host(), E2eEnv::instance().port(), "/mcp",
+                                           body,
+                                           {{"Content-Type", "application/json"},
+                                            {"MCP-Protocol-Version", "2026-07-28"},
+                                            {"Mcp-Method", "tools/list"}});
+    EXPECT_EQ(resp.status, 200);
+    Json::Value out = parseJson(resp.body);
+    EXPECT_TRUE(out.isMember("error"));
+    EXPECT_EQ(out["error"]["code"].asInt(), -32600);
+}
+
 TEST(E2eErrors, HealthAndMetricsAreAnonymous) {
     HttpResponse health = HttpUtil::get(E2eEnv::instance().host(), E2eEnv::instance().port(), "/health");
     EXPECT_EQ(health.status, 200);

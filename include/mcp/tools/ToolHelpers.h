@@ -59,14 +59,23 @@ inline Result<double> argDouble(const Json::Value& args, const std::string& name
     return v.asDouble();
 }
 
-inline Result<OrgConfig> parseOrgConfig(const Json::Value& cfgJson, bool required = true) {
-    OrgConfig c;
+inline Result<OrgConfig> parseOrgConfig(const Json::Value& cfgJson, bool required = true,
+                                        const OrgConfig* base = nullptr) {
     if (!cfgJson.isObject()) {
         if (required) return RpcError::invalidParams("Missing required argument: config");
-        return c;
+        return OrgConfig{};
     }
+    // Дельта мержится поверх действующей конфигурации (design D3):
+    // отсутствующие поля наследуются от базы, а не от значений по умолчанию;
+    // валидации прогоняются по смерженному итогу.
+    Json::Value merged(Json::objectValue);
+    if (base) {
+        const Json::Value baseJson = Codec::orgConfigToJson(*base);
+        for (const auto& key : baseJson.getMemberNames()) merged[key] = baseJson[key];
+    }
+    for (const auto& key : cfgJson.getMemberNames()) merged[key] = cfgJson[key];
     bool ok = false;
-    OrgConfig parsed = Codec::orgConfigFromJson(cfgJson, ok);
+    OrgConfig parsed = Codec::orgConfigFromJson(merged, ok);
     if (!ok) return RpcError::invalidParams("Invalid consensus model or power distribution in config");
     if (parsed.quorum_percentage < 0 || parsed.quorum_percentage > 100)
         return RpcError::invalidParams("quorum_percentage must be in [0;100]");

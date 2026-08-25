@@ -76,37 +76,6 @@ std::set<std::string> IndexRepository::scanTag(const std::string& tagLowered) {
     return out;
 }
 
-void IndexRepository::setName(rocksdb::WriteBatch& batch, const Organization& org) {
-    db_.put(batch, "cf_indexes", Keys::orgName(Keys::nameLower(org.name), org.org_id), "");
-}
-
-void IndexRepository::removeName(rocksdb::WriteBatch& batch, const Organization& org) {
-    db_.remove(batch, "cf_indexes", Keys::orgName(Keys::nameLower(org.name), org.org_id));
-}
-
-std::set<std::string> IndexRepository::scanNameQuery(const std::string& queryLowered, size_t maxScan) {
-    std::set<std::string> out;
-    if (queryLowered.empty()) return out;
-    const std::string prefix = "org_name:";
-    auto it = db_.newIterator("cf_indexes");
-    size_t scanned = 0;
-    for (it->Seek(prefix + queryLowered); it->Valid() && scanned < maxScan; it->Next(), ++scanned) {
-        const std::string k = it->key().ToString();
-        if (k.rfind(prefix, 0) != 0) break;
-        const std::string tail = k.substr(prefix.size());
-        const size_t sep = tail.rfind(':');
-        if (sep == std::string::npos || sep + 1 >= tail.size()) continue;
-        const std::string nameLowered = tail.substr(0, sep);
-        const std::string orgId = tail.substr(sep + 1);
-        if (nameLowered.find(queryLowered) != std::string::npos) {
-            out.insert(orgId);
-            continue;
-        }
-        if (nameLowered.compare(0, queryLowered.size(), queryLowered) != 0) break;
-    }
-    return out;
-}
-
 void IndexRepository::setCategory(rocksdb::WriteBatch& batch, const Organization& org) {
     if (org.category.empty()) return;
     db_.put(batch, "cf_indexes", Keys::category(Keys::nameLower(org.category), org.org_id), "");

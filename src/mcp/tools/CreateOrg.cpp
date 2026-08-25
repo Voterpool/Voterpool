@@ -10,19 +10,20 @@ ToolDef defCreateOrganization() {
         "Create an organization with consensus settings; the creator becomes its single ADMIN",
         [] {
             Json::Value config = schemaObject(
-                {{"consensus_model", Json::Value("string")},
-                 {"quorum_percentage", Json::Value("integer")},
-                 {"voting_duration_sec", Json::Value("integer")},
-                 {"power_distribution", Json::Value("string")}},
+                {{"consensus_model", schemaString()},
+                 {"quorum_percentage", schemaInteger()},
+                 {"voting_duration_sec", schemaInteger()},
+                 {"power_distribution", schemaString()}},
                 {"consensus_model", "voting_duration_sec"});
             return schemaObject(
-                {{"name", Json::Value("string")},
-                 {"short_description", Json::Value("string")},
-                 {"description", Json::Value("string")},
-                 {"tags", Json::Value(Json::arrayValue)},
-                 {"type", Json::Value("string")},
-                 {"max_agents", Json::Value("integer")},
-                 {"joins_per_day_limit", Json::Value("integer")},
+                {{"name", schemaString()},
+                 {"short_description", schemaString()},
+                 {"description", schemaString()},
+                 {"tags", schemaArrayOf("string")},
+                 {"category", schemaString()},
+                 {"type", schemaString()},
+                 {"max_agents", schemaInteger()},
+                 {"joins_per_day_limit", schemaInteger()},
                  {"config", std::move(config)}},
                 {"name", "type", "config"});
         },
@@ -36,25 +37,19 @@ ToolDef defCreateOrganization() {
             else if (typeStr.value() == "CLOSED") orgType = OrgType::CLOSED;
             else return RpcError::invalidParams("type must be OPEN or CLOSED");
 
+            // Категория опциональна; передана — только строкой (-32602).
+            if (args.isMember("category") && !args["category"].isString())
+                return RpcError::invalidParams("category must be a string");
+
             bool configRequired = args.isMember("config");
             auto cfg = parseOrgConfig(args["config"], true);
             if (!cfg.ok()) return cfg.error();
 
-            {
-                auto it = tc.app.db->newIterator("cf_indexes");
-                std::string q = Keys::nameLower(name.value());
-                for (it->Seek("org_name:"); it->Valid(); it->Next()) {
-                    std::string k = it->key().ToString();
-                    if (k.rfind("org_name:", 0) != 0) break;
-                    std::string rest = k.substr(std::string("org_name:").size());
-                    size_t colon = rest.rfind(':');
-                    if (rest.substr(0, colon) == q) {
-                        auto org = tc.app.orgs->get(rest.substr(colon + 1));
-                        if (org && org->status == OrgStatus::ACTIVE) {
-                            return RpcError::conflict("Organization with this name already exists");
-                        }
-                    }
-                }
+            // Дубликат имени: O(1) lookup по резидентному реестру (только ACTIVE).
+            if (auto dup = tc.app.orgNames->findActiveByName(Keys::nameLower(name.value()))) {
+                RpcError e = RpcError::conflict("Organization with this name already exists");
+                e.data["org_id"] = *dup;
+                return e;
             }
 
             Organization org;
@@ -66,6 +61,8 @@ ToolDef defCreateOrganization() {
                 org.description = args["description"].asString();
             if (args.isMember("tags") && args["tags"].isArray())
                 org.tags = Codec::tagsFromJson(args["tags"]);
+            if (args.isMember("category") && args["category"].isString())
+                org.category = args["category"].asString();
             org.type = orgType;
             if (args.isMember("max_agents")) {
                 if (!args["max_agents"].isIntegral()) return RpcError::invalidParams("max_agents must be an integer");
@@ -96,11 +93,11 @@ ToolDef defCreateOrganization() {
             db_putOrg(tc.app, batch, org);
             tc.app.orgs->putMembership(batch, creator);
             tc.app.indexes->addFeedActive(batch, org);
-            tc.app.indexes->setName(batch, org);
             tc.app.indexes->setTags(batch, org);
             tc.app.indexes->setCategory(batch, org);
             if (!tc.app.db->commit(batch)) return RpcError::internal("Storage write failed");
 
+            tc.app.orgNames->add(org.org_id, Keys::nameLower(org.name));
             refreshOrgGauges(tc.app);
 
             Json::Value out;
@@ -108,6 +105,7 @@ ToolDef defCreateOrganization() {
             out["name"] = org.name;
             out["short_description"] = org.short_description;
             out["tags"] = Codec::tagsToJson(org.tags);
+            out["category"] = org.category;
             out["type"] = toString(org.type);
             out["role"] = "ADMIN";
             out["voting_power"] = creator.voting_power;

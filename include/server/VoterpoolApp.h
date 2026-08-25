@@ -3,6 +3,9 @@
 #include "server/AppContext.h"
 #include "server/AuthMiddleware.h"
 
+#include <atomic>
+#include <memory>
+
 namespace voterpool {
 
 class VoterpoolApp {
@@ -20,6 +23,7 @@ public:
 private:
     AppContext ctx_;
     std::unique_ptr<AuthMiddleware> middleware_;
+    std::atomic<bool> draining_{false};
 };
 
 }  // namespace voterpool

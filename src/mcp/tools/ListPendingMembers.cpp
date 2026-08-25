@@ -10,7 +10,7 @@ ToolDef defListPendingMembers() {
         "List PENDING join requests of an organization as [{agent_id, requested_at}] sorted by "
         "request time. Available to ANY ACTIVE member - approval is consensus-based, so any member "
         "may raise an APPROVE_MEMBER proposal for a candidate",
-        [] { return schemaObject({{"org_id", Json::Value("string")}}, {"org_id"}); },
+        [] { return schemaObject({{"org_id", schemaString()}}, {"org_id"}); },
         [](ToolContext& tc, const Json::Value& args) -> Result<Json::Value> {
             auto orgId = argUuid(args, "org_id");
             if (!orgId.ok()) return orgId.error();

@@ -66,6 +66,58 @@ TEST(OnboardingFlow, FullClosedOrgJoinLifecycle) {
     EXPECT_EQ(h->app->indexes->listPending(orgId).size(), 0u);
 }
 
+TEST(OnboardingFlow, GetAgentProfileShowsPendingAndActiveMemberships) {
+    auto h = Harness::create();
+    AgentContext admin = h->registerAgent("ga-admin");
+    AgentContext candidate = h->registerAgent("ga-candidate");
+
+    // ACTIVE в OPEN-организации.
+    Json::Value openOut = createOrg(*h, admin, "Ga Open Org", "OPEN", orgConfigArgs("MAJORITY", 600));
+    ASSERT_FALSE(h->isError(openOut));
+    std::string openId = openOut["org_id"].asString();
+    Json::Value joinOpen;
+    joinOpen["org_id"] = openId;
+    ASSERT_FALSE(h->isError(h->call("join_organization", joinOpen, &candidate)));
+
+    // PENDING-заявка в CLOSED-организацию.
+    Json::Value closedOut = createOrg(*h, admin, "Ga Closed Org", "CLOSED", orgConfigArgs("CONSENT", 600));
+    ASSERT_FALSE(h->isError(closedOut));
+    std::string closedId = closedOut["org_id"].asString();
+    Json::Value joinClosed;
+    joinClosed["org_id"] = closedId;
+    Json::Value joined = h->call("join_organization", joinClosed, &candidate);
+    ASSERT_FALSE(h->isError(joined));
+    EXPECT_EQ(joined["status"].asString(), "PENDING");
+
+    // Сценарий спеки agent-identity «Профиль с членствами»: get_agent видит оба членства.
+    Json::Value args;
+    args["agent_id"] = candidate.agent_id;
+    AgentContext viewer = h->registerAgent("ga-viewer");
+    Json::Value profile = h->call("get_agent", args, &viewer);
+    ASSERT_FALSE(h->isError(profile)) << profile.toStyledString();
+
+    Json::Value orgs = profile["organizations"];
+    ASSERT_EQ(orgs.size(), 2u);
+    int activeSeen = 0;
+    int pendingSeen = 0;
+    for (const auto& item : orgs) {
+        const std::string status = item["status"].asString();
+        EXPECT_FALSE(item["org_id"].asString().empty());
+        EXPECT_FALSE(item["name"].asString().empty());
+        if (status == "PENDING") {
+            ++pendingSeen;
+            EXPECT_EQ(item["org_id"].asString(), closedId);
+            EXPECT_DOUBLE_EQ(item["voting_power"].asDouble(), 1.0);
+        } else if (status == "ACTIVE") {
+            ++activeSeen;
+            EXPECT_EQ(item["org_id"].asString(), openId);
+            EXPECT_DOUBLE_EQ(item["voting_power"].asDouble(), 1.0);
+        }
+    }
+    EXPECT_EQ(activeSeen, 1);
+    EXPECT_EQ(pendingSeen, 1);
+}
+
 TEST(OnboardingFlow, TtlCloseUpdatesUpdatedAtAndFeedsUpdatedSince) {
     auto h = Harness::create();
     AgentContext admin = h->registerAgent("ttl-upd");

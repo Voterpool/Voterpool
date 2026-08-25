@@ -73,3 +73,55 @@ TEST(Recovery, StateFullyRestoredAfterCloseReopen) {
         reopened.close();
     }
 }
+
+// Спека background-workers «Фазы запуска и восстановления»: опциональное
+// восстановление индекса активных предложений при старте не должно ронять
+// процесс и должно давать рабочий индекс для TTL-воркера.
+TEST(Recovery, RebuildIndexOnStartRestoresUsableActiveIndex) {
+    std::string dir = tempDbDir();
+    AppConfig cfg;
+    cfg.storage.path = dir;
+    auto h = Harness::create(cfg);
+    std::string orgId;
+    std::string pid;
+    {
+        AgentContext creator = h->registerAgent("rebuild-admin");
+        Json::Value orgOut = createOrg(*h, creator, "Rebuild Org", "OPEN",
+                                       orgConfigArgs("MAJORITY", 6000));
+        ASSERT_FALSE(h->isError(orgOut));
+        orgId = orgOut["org_id"].asString();
+        pid = createProposal(*h, creator, orgId, "survivor")["proposal_id"].asString();
+
+        // Индекс активности мог быть потерян (сценарий повреждения): чистим.
+        {
+            rocksdb::WriteBatch batch;
+            auto pOpt = h->app->proposals->get(orgId, pid);
+            ASSERT_TRUE(pOpt.has_value());
+            h->app->proposals->removeActiveIndex(batch, *pOpt);
+            ASSERT_TRUE(h->app->db->commit(batch));
+        }
+
+        if (h->app->workers) h->app->workers->stop();
+        h->app->workers.reset();
+        h->app->engine.reset();
+        h->app->hub.reset();
+        h->app->db->close();
+        h->app.reset();
+    }
+
+    AppConfig rebuildCfg = cfg;
+    rebuildCfg.storage.rebuild_index_on_start = true;
+    AppContext restarted;
+    restarted.config = rebuildCfg;
+    restarted.init(&h->clock);  // до фикса здесь был гарантированный SIGSEGV
+
+    // Восстановленный индекс пригоден: TTL-воркер находит и закрывает предложение.
+    h->clock.advanceSeconds(7000);
+    restarted.engine->closeExpired(h->clock.nowSec());
+
+    auto p = restarted.proposals->get(orgId, pid);
+    ASSERT_TRUE(p.has_value());
+    EXPECT_EQ(p->status, ProposalStatus::REJECTED)
+        << "MAJORITY без голосов на истечении -> REJECTED через восстановленный индекс";
+    restarted.db->close();
+}

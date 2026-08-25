@@ -8,17 +8,25 @@
 namespace voterpool {
 
 // Контракт реестра (design D2):
-//  1) forget(proposalId) вызывается только после успешного коммита
-//     терминального статуса предложения.
+//  1) forget(key) вызывается только после успешного коммита
+//     терминального статуса предложения (включая путь роспуска:
+//     EXPIRED-записи фиксируются тем же коммитом, что и статус
+//     DISSOLVED организации).
 //  2) Внутри критической секции из acquire() состояние предложения
-//     перепроверяется из хранилища.
+//     и статус его организации перепроверяются из хранилища.
 //
-// После forget() повторный acquire() того же id создаёт новый экземпляр
-// мьютекса, поэтому прежний держатель Guard и новый acquirer могут временно
-// находиться в критических секциях разных объектов. Это безопасно благодаря
-// (1)+(2): опоздавший избиратель прочтёт терминальный статус и получит
-// -32003 Conflict.
-class ProposalLockRegistry {
+// После forget() повторный acquire() того же ключа создаёт новый
+// экземпляр мьютекса, поэтому прежний держатель Guard и новый acquirer
+// могут временно находиться в критических секциях разных объектов.
+// Это безопасно благодаря (1)+(2): опоздавший избиратель прочтёт
+// терминальный статус и получит -32003 Conflict, голос в распущенную
+// организацию — -32004.
+//
+// Иерархия локов исключает тупики: операция держит не более одного
+// proposal-лока и не более одного org-лока; если нужны оба — сначала
+// proposal, затем organization; держатель org-лока никогда не ожидает
+// proposal-локов. Отдельные экземпляры реестра (proposal/org) независимы.
+class KeyedMutexRegistry {
 public:
     class Guard {
     public:
@@ -45,11 +53,11 @@ public:
         std::shared_ptr<std::mutex> m_;
     };
 
-    Guard acquire(const std::string& proposalId) {
+    Guard acquire(const std::string& key) {
         std::shared_ptr<std::mutex> entry;
         {
             std::lock_guard lock(mapMutex_);
-            auto& slot = locks_[proposalId];
+            auto& slot = locks_[key];
             if (!slot) slot = std::make_shared<std::mutex>();
             entry = slot;
         }
@@ -58,14 +66,16 @@ public:
 
     // Удаляет запись реестра. Живые Guard'ы удерживают мьютекс через
     // shared_ptr; физическое удаление откладывается до последнего unlock().
-    void forget(const std::string& proposalId) {
+    void forget(const std::string& key) {
         std::lock_guard lock(mapMutex_);
-        locks_.erase(proposalId);
+        locks_.erase(key);
     }
 
 private:
     std::mutex mapMutex_;
     std::map<std::string, std::shared_ptr<std::mutex>> locks_;
 };
+
+using ProposalLockRegistry = KeyedMutexRegistry;
 
 }  // namespace voterpool

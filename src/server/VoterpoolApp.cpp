@@ -23,6 +23,19 @@ void VoterpoolApp::registerRoutes() {
     drogon::app().registerPreHandlingAdvice(
         [this](const drogon::HttpRequestPtr& req, AuthMiddleware::AdviceCallback&& cb,
                AuthMiddleware::AdviceChainCallback&& next) {
+            // Draining (background-workers): после сигнала новые HTTP/MCP
+            // соединения не принимаются — мгновенный 503 без диспетчеризации.
+            // /health и /metrics живут до выхода процесса.
+            const std::string& path = req->path();
+            const bool bypass =
+                path == "/health" || (ctx_.config.metrics.enabled && path == ctx_.config.metrics.path);
+            if (!bypass && draining_.load(std::memory_order_acquire)) {
+                auto resp = drogon::HttpResponse::newHttpResponse();
+                resp->setStatusCode(drogon::k503ServiceUnavailable);
+                resp->setBody("Server is shutting down");
+                cb(resp);
+                return;
+            }
             middleware_->handle(req, std::move(cb), std::move(next));
         });
 
@@ -61,6 +74,7 @@ void VoterpoolApp::registerRoutes() {
             resp->setStatusCode(drogon::k200OK);
             resp->setContentTypeString("text/event-stream");
             resp->addHeader("Cache-Control", "no-cache");
+            resp->addHeader("Connection", "keep-alive");
             resp->addHeader("X-Accel-Buffering", "no");
             callback(resp);
         },
@@ -79,6 +93,7 @@ void VoterpoolApp::registerRoutes() {
     drogon::app().registerHandler(
         ctx_.config.metrics.path,
         [this](const drogon::HttpRequestPtr&, std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
+            if (ctx_.db && ctx_.db->isOpen()) ctx_.db->publishStatisticsToRegistry();
             auto resp = drogon::HttpResponse::newHttpResponse();
             resp->setStatusCode(drogon::k200OK);
             resp->setContentTypeString("text/plain; version=0.0.4");
@@ -97,17 +112,32 @@ void VoterpoolApp::startWorkers() {
 
 int VoterpoolApp::run() {
     auto drainAndQuit = [this]() {
+        // CAS делает повторный SIGTERM/SIGINT во время остановки безопасным.
+        bool expected = false;
+        if (!draining_.compare_exchange_strong(expected, true)) return;
         ctx_.hub->shutdownAll();
         if (ctx_.workers) ctx_.workers->stop();
         drogon::app().getLoop()->runAfter(0.2, [] { drogon::app().quit(); });
     };
+    // Транспортные параметры применяются к листенеру (configuration):
+    // TLS-листенер при ssl.enabled, лимит тела и таймаут простоя — всегда.
+    auto& server = ctx_.config.server;
     drogon::app()
         .setTermSignalHandler(drainAndQuit)
         .setIntSignalHandler(drainAndQuit)
         .setLogLevel(trantor::Logger::kWarn)
-        .addListener(ctx_.config.server.host, static_cast<uint16_t>(ctx_.config.server.port))
-        .setThreadNum(static_cast<size_t>(ctx_.config.server.threads_num));
-    spdlog::info("Voterpool Engine started on {}:{}", ctx_.config.server.host, ctx_.config.server.port);
+        .setClientMaxBodySize(static_cast<size_t>(server.max_request_body_size))
+        .setIdleConnectionTimeout(static_cast<size_t>(server.request_timeout_sec));
+    if (server.ssl.enabled) {
+        drogon::app().setSSLFiles(server.ssl.cert_path, server.ssl.key_path);
+        drogon::app().addListener(server.host, static_cast<uint16_t>(server.port), true,
+                                  server.ssl.cert_path, server.ssl.key_path);
+    } else {
+        drogon::app().addListener(server.host, static_cast<uint16_t>(server.port));
+    }
+    drogon::app().setThreadNum(static_cast<size_t>(server.threads_num));
+    spdlog::info("Voterpool Engine started on {}:{} ({})", server.host, server.port,
+                 server.ssl.enabled ? "TLS" : "plaintext");
     drogon::app().run();
     return 0;
 }

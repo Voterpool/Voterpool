@@ -1,0 +1,13 @@
+# Мода A: voterpool запущен на хосте (например, под systemd).
+# Observability-стек тот же; скрейп приложения через host-gateway.
+# Запуск: docker compose -f docker-compose.yml -f docker-compose.hostmode.yaml up -d
+services:
+  prometheus:
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerts:/etc/prometheus/alerts:ro
+      # Замена маунта bundled → hostmode (тот же путь в контейнере)
+      - ./prometheus/scrape.d/voterpool-hostmode.yml:/etc/prometheus/scrape.d/voterpool.yml:ro
+      - prom_data:/prometheus
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

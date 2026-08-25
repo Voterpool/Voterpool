@@ -86,6 +86,67 @@ TEST(OnboardingUnit, AnonymousFlagsInCatalog) {
     }
 }
 
+TEST(OnboardingUnit, PlaybookAllowsPlainStandardProposal) {
+    auto h = Harness::create();
+    Json::Value pb = h->call("get_playbook", Json::Value(Json::objectValue), nullptr);
+    ASSERT_FALSE(h->isError(pb));
+    const std::string text = pb["playbook"].asString();
+
+    // Канон (design D1): предложение без action/config_delta валидно,
+    // оба вместе запрещены; старая вводящая в заблуждение фраза удалена.
+    EXPECT_NE(text.find("optionally AT MOST ONE of:"), std::string::npos)
+        << "playbook must present action/config_delta as optional";
+    EXPECT_NE(text.find("Neither is valid too"), std::string::npos)
+        << "plain STANDARD proposal must be explicitly allowed";
+    EXPECT_NE(text.find("both together are rejected (-32005)"), std::string::npos);
+    EXPECT_EQ(text.find("EXACTLY ONE"), std::string::npos)
+        << "misleading 'plus EXACTLY ONE' wording must be gone";
+
+    // Правка текста не задела каталог инструментов.
+    static const char* kExpectedTools[] = {
+        "register_agent",     "update_agent",        "search_organizations", "get_organization",
+        "join_organization",  "list_pending_members", "create_proposal",     "get_proposal",
+        "get_proposals",      "cast_vote",           "leave_organization",   "transfer_admin",
+        "dissolve_organization", "update_voting_power", "create_organization", "get_playbook",
+        "get_agent"};
+    for (const char* tool : kExpectedTools) {
+        bool found = false;
+        for (const auto& def : mcp::catalog()) {
+            if (std::string(def.name) == tool) { found = true; break; }
+        }
+        EXPECT_TRUE(found) << "tool missing from catalog: " << tool;
+    }
+}
+
+// consensus-engine «Стандартное предложение»: create_proposal только с
+// org_id+title (без action/config_delta) — валидный запрос, ответ несёт
+// proposal_id/status ACTIVE/created_at/expires_at.
+TEST(OnboardingUnit, PlainStandardProposalContract) {
+    auto h = Harness::create();
+    AgentContext a = h->registerAgent("plain-proposer");
+    Json::Value orgOut = createOrg(*h, a, "Plain Proposal Org", "OPEN", orgConfigArgs("MAJORITY", 600));
+    ASSERT_FALSE(h->isError(orgOut));
+    std::string orgId = orgOut["org_id"].asString();
+
+    Json::Value args;
+    args["org_id"] = orgId;
+    args["title"] = "plain standard";
+    Json::Value out = h->call("create_proposal", args, &a);
+    ASSERT_FALSE(h->isError(out)) << "plain STANDARD proposal must be accepted: "
+                                  << out.toStyledString();
+    EXPECT_FALSE(out["proposal_id"].asString().empty());
+    EXPECT_EQ(out["status"].asString(), "ACTIVE");
+    EXPECT_TRUE(out.isMember("created_at"));
+    EXPECT_EQ(out["expires_at"].asInt64() - out["created_at"].asInt64(), 600);
+
+    // Замороженные T/H зафиксированы при создании (проверяется карточкой).
+    Json::Value cardArgs;
+    cardArgs["proposal_id"] = out["proposal_id"].asString();
+    Json::Value card = h->call("get_proposal", cardArgs, &a);
+    ASSERT_FALSE(h->isError(card));
+    EXPECT_DOUBLE_EQ(card["total_voting_power_at_creation"].asDouble(), 1.0);
+}
+
 TEST(OnboardingUnit, AnonymousEnforcementViaDispatch) {
     auto h = Harness::create();
     // Анонимный get_playbook работает без контекста агента.

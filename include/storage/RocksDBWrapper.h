@@ -50,6 +50,8 @@ public:
     void close();
     bool isOpen() const { return db_ != nullptr; }
 
+    void publishStatisticsToRegistry();
+
     static constexpr const char* kCfNames[] = {
         "default", "cf_organizations", "cf_memberships", "cf_proposals",
         "cf_votes", "cf_indexes", "cf_auth", "cf_agent_orgs", "cf_audit_log"};

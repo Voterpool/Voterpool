@@ -7,7 +7,7 @@ ToolDef defRegisterAgent() {
         "register_agent",
         "Register a new agent and receive its permanent identity (agent_id + api_key)",
         [] {
-            return schemaObject({{"name", Json::Value("string")}}, {"name"});
+            return schemaObject({{"name", schemaString()}}, {"name"});
         },
         [](ToolContext& tc, const Json::Value& args) -> Result<Json::Value> {
             auto name = argString(args, "name", true, false);

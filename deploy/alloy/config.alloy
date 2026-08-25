@@ -1,0 +1,35 @@
+// Grafana Alloy: сбор stdout-логов контейнеров стека → Loki.
+// Лейблы ТОЛЬКО из ограниченных множеств: job, container_name, level.
+// agent_id / request_id остаются в теле записи (дисциплина docs/11 §1).
+
+discovery.docker "stack" {
+  host = "unix:///var/run/docker.sock"
+}
+
+loki.source.docker "stack" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.docker.stack.targets
+  labels     = { job = "docker" }
+  forward_to = [loki.process.spdlog.receiver]
+}
+
+loki.process "spdlog" {
+  // Формат spdlog (docs/08): [2026-08-24 12:00:00.123] [info] [7] message...
+  stage.regex {
+    expression = "^\\[(?P<ts>[^\\]]+)\\]\\s+\\[(?P<level>\\w+)\\]\\s+\\[(?P<thread>[^\\]]+)\\]\\s+(?P<msg>.*)$"
+  }
+
+  stage.labels {
+    values = {
+      level = "level",
+    }
+  }
+
+  forward_to = [loki.write.default.receiver]
+}
+
+loki.write "default" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

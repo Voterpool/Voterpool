@@ -1,0 +1,152 @@
+# Voterpool observability stack — мода B (всё в контейнерах).
+# Мода A (бинарник на хосте): docker compose -f docker-compose.yml -f docker-compose.hostmode.yaml up -d
+name: voterpool-obs
+
+services:
+  voterpool:
+    image: voterpool:local
+    build:
+      context: ..
+      dockerfile: deploy/voterpool.Dockerfile
+    profiles: ["bundled"]
+    container_name: voterpool
+    restart: unless-stopped
+    networks: [obs]
+    ports:
+      - "8080:8080"
+    volumes:
+      - vp_data:/data
+    # distroless не содержит shell/wget — healthcheck невозможен.
+    # Живость контролирует Prometheus: алерт VoterpoolScrapeDown (up == 0).
+
+  prometheus:
+    image: prom/prometheus:v3.14.0
+    container_name: prometheus
+    restart: unless-stopped
+    networks: [obs]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --storage.tsdb.retention.size=5GB
+      - --web.listen-address=:9090
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerts:/etc/prometheus/alerts:ro
+      # Мода B; в hostmode-override этот маунт заменяется на voterpool-hostmode.yml
+      - ./prometheus/scrape.d/voterpool-bundled.yml:/etc/prometheus/scrape.d/voterpool.yml:ro
+      - prom_data:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:9090/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  grafana:
+    image: grafana/grafana:12.4.9
+    container_name: grafana
+    restart: unless-stopped
+    networks: [obs]
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
+      GF_SERVER_ROOT_URL: ${GF_SERVER_ROOT_URL:-http://127.0.0.1:3000}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3000/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  node_exporter:
+    image: prom/node-exporter:v1.12.1
+    container_name: node_exporter
+    restart: unless-stopped
+    networks: [obs]
+    pid: host
+    command:
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --path.rootfs=/host
+      - --web.listen-address=:9100
+    volumes:
+      - /:/host:ro,rslave
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    container_name: alertmanager
+    restart: unless-stopped
+    networks: [obs]
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+      - --web.listen-address=:9093
+    volumes:
+      - ./alertmanager:/etc/alertmanager:ro
+      - am_data:/alertmanager
+    ports:
+      - "127.0.0.1:9093:9093"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:9093/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  loki:
+    image: grafana/loki:3.7.6
+    container_name: loki
+    restart: unless-stopped
+    networks: [obs]
+    command: -config.file=/etc/loki/loki-config.yml
+    volumes:
+      - ./loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - loki_data:/loki
+    ports:
+      - "127.0.0.1:3100:3100"
+
+  alloy:
+    image: grafana/alloy:v1.19.0
+    container_name: alloy
+    restart: unless-stopped
+    networks: [obs]
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    volumes:
+      - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - alloy_data:/var/lib/alloy
+    ports:
+      - "127.0.0.1:12345:12345"
+    depends_on:
+      - loki
+
+networks:
+  obs:
+    driver: bridge
+
+volumes:
+  vp_data:
+  prom_data:
+  grafana_data:
+  loki_data:
+  am_data:
+  alloy_data:

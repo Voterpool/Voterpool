@@ -131,3 +131,77 @@ TEST(Config, InvalidValuesExitWithConfigError) {
     char* argsMiss[] = {arg0, miss, missVal};
     EXPECT_EQ(runLoad(3, argsMiss), 1);
 }
+
+TEST(Config, EnvOverrideCoversEveryParameter) {
+    EnvGuard guard({
+        "VOTERPOOL_SERVER_SSL_CERT_PATH",   "VOTERPOOL_SERVER_SSL_KEY_PATH",
+        "VOTERPOOL_SERVER_MAX_REQUEST_BODY_SIZE", "VOTERPOOL_SERVER_REQUEST_TIMEOUT_SEC",
+        "VOTERPOOL_STORAGE_WRITE_BUFFER_SIZE", "VOTERPOOL_STORAGE_MAX_WRITE_BUFFER_NUMBER",
+        "VOTERPOOL_STORAGE_LOG_LEVEL",      "VOTERPOOL_STORAGE_REBUILD_INDEX_ON_START",
+        "VOTERPOOL_AUTH_OIDC_JWKS_URL",     "VOTERPOOL_AUTH_OIDC_ISSUER",
+        "VOTERPOOL_AUTH_OIDC_CACHE_TTL_SEC","VOTERPOOL_LOGGING_FORMAT",
+        "VOTERPOOL_LOGGING_ASYNC",          "VOTERPOOL_LOGGING_ASYNC_QUEUE_SIZE",
+        "VOTERPOOL_RATE_LIMIT_ENABLED",     "VOTERPOOL_RATE_LIMIT_RPS_PER_AGENT",
+        "VOTERPOOL_RATE_LIMIT_RPS_PER_ORG",
+    });
+    std::string p = writeCfg("server:\n  port: 9100\n");
+
+    setenv("VOTERPOOL_SERVER_SSL_CERT_PATH", "/etc/ssl/v.crt", 1);
+    setenv("VOTERPOOL_SERVER_SSL_KEY_PATH", "/etc/ssl/v.key", 1);
+    setenv("VOTERPOOL_SERVER_MAX_REQUEST_BODY_SIZE", "1048576", 1);
+    setenv("VOTERPOOL_SERVER_REQUEST_TIMEOUT_SEC", "77", 1);
+    setenv("VOTERPOOL_STORAGE_WRITE_BUFFER_SIZE", "33554432", 1);
+    setenv("VOTERPOOL_STORAGE_MAX_WRITE_BUFFER_NUMBER", "7", 1);
+    setenv("VOTERPOOL_STORAGE_LOG_LEVEL", "INFO", 1);
+    setenv("VOTERPOOL_STORAGE_REBUILD_INDEX_ON_START", "true", 1);
+    setenv("VOTERPOOL_AUTH_OIDC_JWKS_URL", "https://idp/jwks.json", 1);
+    setenv("VOTERPOOL_AUTH_OIDC_ISSUER", "https://idp", 1);
+    setenv("VOTERPOOL_AUTH_OIDC_CACHE_TTL_SEC", "42", 1);
+    setenv("VOTERPOOL_LOGGING_FORMAT", "%v", 1);
+    setenv("VOTERPOOL_LOGGING_ASYNC", "false", 1);
+    setenv("VOTERPOOL_LOGGING_ASYNC_QUEUE_SIZE", "2048", 1);
+    setenv("VOTERPOOL_RATE_LIMIT_ENABLED", "true", 1);
+    setenv("VOTERPOOL_RATE_LIMIT_RPS_PER_AGENT", "25", 1);
+    setenv("VOTERPOOL_RATE_LIMIT_RPS_PER_ORG", "250", 1);
+
+    char arg0[] = "voterpool";
+    char a1[] = "--config";
+    std::string cfg = p;
+    char* args[] = {arg0, a1, cfg.data()};
+    AppConfig c = AppConfig::load(3, args);
+
+    EXPECT_EQ(c.server.ssl.cert_path, "/etc/ssl/v.crt");
+    EXPECT_EQ(c.server.ssl.key_path, "/etc/ssl/v.key");
+    EXPECT_EQ(c.server.max_request_body_size, 1048576u);
+    EXPECT_EQ(c.server.request_timeout_sec, 77);
+    EXPECT_EQ(c.storage.write_buffer_size, 33554432u);
+    EXPECT_EQ(c.storage.max_write_buffer_number, 7);
+    EXPECT_EQ(c.storage.log_level, "INFO");
+    EXPECT_TRUE(c.storage.rebuild_index_on_start);
+    EXPECT_EQ(c.auth.oidc.jwks_url, "https://idp/jwks.json");
+    EXPECT_EQ(c.auth.oidc.issuer, "https://idp");
+    EXPECT_EQ(c.auth.oidc.cache_ttl_sec, 42);
+    EXPECT_EQ(c.logging.format, "%v");
+    EXPECT_FALSE(c.logging.async);
+    EXPECT_EQ(c.logging.async_queue_size, 2048u);
+    EXPECT_TRUE(c.rate_limit.enabled);
+    EXPECT_EQ(c.rate_limit.rps_per_agent, 25);
+    EXPECT_EQ(c.rate_limit.rps_per_org, 250);
+}
+
+TEST(Config, SslEnabledWithoutReadableCertOrKeyIsFatal) {
+    AppConfig c;
+    c.server.ssl.enabled = true;
+    c.server.ssl.cert_path = "/nonexistent/voterpool.crt";
+    c.server.ssl.key_path = "/nonexistent/voterpool.key";
+    EXPECT_THROW(c.validate(), ConfigError);
+
+    // Читаемые файлы проходят предпроверку путей.
+    std::string cert = writeCfg("# cert placeholder\n");
+    std::string key = writeCfg("# key placeholder\n");
+    c.server.ssl.cert_path = cert;
+    c.server.ssl.key_path = key;
+    EXPECT_NO_THROW(c.validate());
+    fs::remove(cert);
+    fs::remove(key);
+}

@@ -84,6 +84,17 @@ TEST(E2eSse, IsolationAndHeartbeatAndEventDelivery) {
     ASSERT_TRUE(memberStream.connected());
     ASSERT_TRUE(strangerStream.connected());
 
+    // Обязательные заголовки SSE-ответа (sse-events); имена заголовков
+    // HTTP регистронезависимы, Drogon отдаёт их в нижнем регистре.
+    {
+        const std::string head = memberStream.responseHead();
+        EXPECT_NE(head.find("200"), std::string::npos) << head;
+        EXPECT_NE(head.find("content-type: text/event-stream"), std::string::npos) << head;
+        EXPECT_NE(head.find("cache-control: no-cache"), std::string::npos) << head;
+        EXPECT_NE(head.find("connection: keep-alive"), std::string::npos) << head;
+        EXPECT_NE(head.find("x-accel-buffering: no"), std::string::npos) << head;
+    }
+
     Json::Value pArgs;
     pArgs["org_id"] = orgId;
     pArgs["title"] = "SSE check";

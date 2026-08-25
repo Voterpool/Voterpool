@@ -1,3 +1,4 @@
+#include "consensus/ConsensusEngine.h"
 #include "tests/common/Scenario.h"
 
 #include <gtest/gtest.h>
@@ -6,6 +7,37 @@ using namespace voterpool;
 using namespace voterpool::testing;
 
 namespace {
+
+// Сумма всех семплов семейства счётчика из expose() (Prometheus text format).
+std::int64_t counterTotal(const std::string& family) {
+    const std::string text = MetricsRegistry::instance().expose();
+    std::int64_t total = 0;
+    size_t pos = 0;
+    while ((pos = text.find(family, pos)) != std::string::npos) {
+        size_t lineEnd = text.find('\n', pos);
+        if (lineEnd == std::string::npos) lineEnd = text.size();
+        std::string line = text.substr(pos, lineEnd - pos);
+        char next = line.size() > family.size() ? line[family.size()] : '\0';
+        if (next == '{' || next == ' ') {
+            try {
+                total += std::stoll(line.substr(line.rfind(' ') + 1));
+            } catch (...) {
+            }
+        }
+        pos = lineEnd;
+    }
+    return total;
+}
+
+Json::Value closedPayload(const std::vector<SseEvent>& events) {
+    for (const auto& e : events) {
+        if (e.event_type == "proposal_closed") {
+            auto parsed = Codec::parse(e.payload_json);
+            if (parsed) return *parsed;
+        }
+    }
+    return Json::Value(Json::nullValue);
+}
 
 struct ClosedOrg {
     std::shared_ptr<Harness> h;
@@ -268,4 +300,129 @@ TEST(Actions, FailedCommitOnUpdateOrgInfoKeepsSearchConsistent) {
     searchArgs["query"] = "failmeta";
     EXPECT_EQ(c.h->call("search_organizations", searchArgs, &viewer)["items"].size(), 0u)
         << "после восстановления старое имя удалено из поиска";
+}
+
+// Спека consensus-engine «Лимит блокирует применение действия» +
+// mcp-protocol «Лимит заблокировал применение действия»: карточка,
+// событие proposal_closed и метрика согласованно говорят "не применено".
+TEST(Actions, LimitBlockedApprovalKeepsCardEventAndMetricHonest) {
+    ClosedOrg c = makeClosedOrg("Honest");
+    auto orgBefore = c.h->app->orgs->get(c.orgId);
+    Organization limited = *orgBefore;
+    limited.max_agents = 1;
+    c.h->app->orgs->put(limited);
+
+    Json::Value pOut = approveProposal(c);
+    ASSERT_FALSE(c.h->isError(pOut));
+    std::string pid = pOut["proposal_id"].asString();
+
+    const std::int64_t appliedBefore = counterTotal("voterpool_actions_applied_total");
+
+    // Голосуем через записывающий движок, чтобы поймать proposal_closed.
+    std::vector<SseEvent> events;
+    ConsensusEngine recorder(ConsensusEngine::Deps{
+        c.h->app->db.get(), c.h->app->orgs.get(), c.h->app->proposals.get(),
+        c.h->app->votes.get(), c.h->app->indexes.get(), c.h->app->audit.get(),
+        &c.h->app->locks, &c.h->app->orgLocks, &c.h->clock, c.h->app->orgNames.get(),
+        [&events](const SseEvent& ev) { events.push_back(ev); }});
+    auto receipt = recorder.castVote(c.creator.agent_id, pid, VoteDecision::YES);
+    ASSERT_TRUE(receipt.ok()) << receipt.error().message;
+
+    // Событие: PASSED, но действие не применено.
+    Json::Value closed = closedPayload(events);
+    ASSERT_TRUE(closed.isObject());
+    EXPECT_EQ(closed["final_status"].asString(), "PASSED");
+    EXPECT_EQ(closed["config_delta_applied"].asBool(), false);
+    EXPECT_TRUE(closed["action_applied"].isNull());
+
+    // Хранимые флаги предложения — false.
+    auto p = c.h->app->proposals->get(c.orgId, pid);
+    ASSERT_TRUE(p.has_value());
+    EXPECT_EQ(p->status, ProposalStatus::PASSED);
+    EXPECT_FALSE(p->action_applied);
+    EXPECT_FALSE(p->config_delta_applied);
+
+    // Участник остался PENDING.
+    auto m = c.h->app->orgs->getMembership(c.orgId, c.candidate.agent_id);
+    ASSERT_TRUE(m.has_value());
+    EXPECT_EQ(m->status, MemberStatus::PENDING);
+
+    // Карточка get_proposal согласована с событием.
+    Json::Value cardArgs;
+    cardArgs["proposal_id"] = pid;
+    Json::Value card = c.h->call("get_proposal", cardArgs, &c.creator);
+    ASSERT_FALSE(c.h->isError(card));
+    EXPECT_TRUE(card["action_applied"].isNull());
+    EXPECT_EQ(card["config_delta_applied"].asBool(), false);
+
+    // Метрика применений не выросла.
+    EXPECT_EQ(counterTotal("voterpool_actions_applied_total"), appliedBefore);
+}
+
+TEST(Actions, SuccessfulApproveReportsKindAndIncrementsMetricOnce) {
+    ClosedOrg c = makeClosedOrg("Metric");
+    const std::int64_t appliedBefore = counterTotal("voterpool_actions_applied_total");
+
+    Json::Value first = approveProposal(c);
+    std::string pid1 = first["proposal_id"].asString();
+    vote(*c.h, c.creator, pid1, "YES");
+    EXPECT_EQ(counterTotal("voterpool_actions_applied_total"), appliedBefore + 1);
+
+    Json::Value cardArgs;
+    cardArgs["proposal_id"] = pid1;
+    Json::Value card = c.h->call("get_proposal", cardArgs, &c.creator);
+    ASSERT_FALSE(c.h->isError(card));
+    EXPECT_EQ(card["action_applied"].asString(), "APPROVE_MEMBER");
+    EXPECT_EQ(card["config_delta_applied"].asBool(), false);
+
+    auto p = c.h->app->proposals->get(c.orgId, pid1);
+    ASSERT_TRUE(p.has_value());
+    EXPECT_TRUE(p->action_applied);
+
+    // Идемпотентный повтор по уже ACTIVE агенту: флаг false, метрика не растёт.
+    const std::int64_t afterFirst = counterTotal("voterpool_actions_applied_total");
+    Json::Value second = approveProposal(c);
+    std::string pid2 = second["proposal_id"].asString();
+    // CONSENT: теперь активных участников двое — нужны оба голоса для PASSED.
+    vote(*c.h, c.creator, pid2, "YES");
+    Json::Value receipt2 = vote(*c.h, c.candidate, pid2, "YES");
+    ASSERT_EQ(receipt2["proposal_status"].asString(), "PASSED");
+
+    auto p2 = c.h->app->proposals->get(c.orgId, pid2);
+    ASSERT_TRUE(p2.has_value());
+    EXPECT_EQ(p2->status, ProposalStatus::PASSED);
+    EXPECT_FALSE(p2->action_applied) << "идемпотентный пропуск не есть применение";
+    EXPECT_EQ(counterTotal("voterpool_actions_applied_total"), afterFirst);
+
+    Json::Value cardArgs2;
+    cardArgs2["proposal_id"] = pid2;
+    Json::Value card2 = c.h->call("get_proposal", cardArgs2, &c.creator);
+    ASSERT_FALSE(c.h->isError(card2));
+    EXPECT_TRUE(card2["action_applied"].isNull());
+}
+
+TEST(Actions, UpdateOrgInfoCardReportsAppliedKind) {
+    ClosedOrg c = makeClosedOrg("KindMeta");
+    Json::Value args;
+    args["org_id"] = c.orgId;
+    args["title"] = "kind meta";
+    Json::Value action;
+    action["kind"] = "UPDATE_ORG_INFO";
+    Json::Value payload;
+    payload["description"] = "updated via consensus";
+    action["payload"] = payload;
+    args["action"] = action;
+    Json::Value pOut = c.h->call("create_proposal", args, &c.creator);
+    ASSERT_FALSE(c.h->isError(pOut));
+    std::string pid = pOut["proposal_id"].asString();
+
+    Json::Value receipt = vote(*c.h, c.creator, pid, "YES");
+    ASSERT_EQ(receipt["proposal_status"].asString(), "PASSED");
+
+    Json::Value cardArgs;
+    cardArgs["proposal_id"] = pid;
+    Json::Value card = c.h->call("get_proposal", cardArgs, &c.creator);
+    ASSERT_FALSE(c.h->isError(card));
+    EXPECT_EQ(card["action_applied"].asString(), "UPDATE_ORG_INFO");
+    EXPECT_EQ(card["config_delta_applied"].asBool(), false);
 }

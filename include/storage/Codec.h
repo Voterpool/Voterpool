@@ -216,6 +216,8 @@ inline std::string serializeProposal(const Proposal& p) {
     if (p.action) v["action"] = actionToJson(*p.action);
     else v["action"] = Json::Value(Json::nullValue);
     v["status"] = toString(p.status);
+    v["config_delta_applied"] = p.config_delta_applied;
+    v["action_applied"] = p.action_applied;
     v["created_at"] = static_cast<Json::Int64>(p.created_at);
     v["expires_at"] = static_cast<Json::Int64>(p.expires_at);
     v["updated_at"] = static_cast<Json::Int64>(p.updated_at);
@@ -252,6 +254,8 @@ inline std::optional<Proposal> deserializeProposal(const std::string& s) {
     else if (st == "REJECTED") p.status = ProposalStatus::REJECTED;
     else if (st == "EXPIRED") p.status = ProposalStatus::EXPIRED;
     p.created_at = root->get("created_at", 0).asInt64();
+    p.config_delta_applied = root->get("config_delta_applied", false).asBool();
+    p.action_applied = root->get("action_applied", false).asBool();
     p.expires_at = root->get("expires_at", 0).asInt64();
     p.updated_at = root->get("updated_at", 0).asInt64();
     p.yes_power = root->get("yes_power", 0.0).asDouble();

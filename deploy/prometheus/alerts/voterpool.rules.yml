@@ -1,0 +1,75 @@
+groups:
+  - name: voterpool-app
+    rules:
+      - alert: VoterpoolStorageDegraded
+        expr: voterpool_db_healthy == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Voterpool storage degraded (db_healthy == 0)"
+          description: "Деградация хранилища RocksDB (docs/07 §1.5). Требует немедленной реакции."
+
+      - alert: VoterpoolScrapeDown
+        expr: up{job="voterpool"} == 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Voterpool не отвечает на скрейп"
+          description: "Процесс недоступен более минуты (компенсирующий контроль живости вместо container healthcheck)."
+
+      - alert: VoterpoolHttpLatencyHigh
+        expr: histogram_quantile(0.99, sum(rate(voterpool_http_request_duration_seconds_bucket[5m])) by (le)) > 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "p99 латентность POST /mcp > 1s (10m)"
+
+      - alert: VoterpoolRpcErrorsSurge
+        expr: sum(rate(voterpool_rpc_errors_total[5m])) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Рост rate RPC-ошибок > 0.1 rps (5m окно, 10m удержание)"
+
+      - alert: VoterpoolSseQueueBacklog
+        expr: voterpool_sse_queue_depth > 5000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "SSE queue depth > 5000 — диспетчер не успевает"
+
+      - alert: VoterpoolTtlScanSlow
+        expr: histogram_quantile(0.99, sum(rate(voterpool_ttl_scan_duration_seconds_bucket[5m])) by (le)) > 1
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "p99 длительности TTL-скана > 1s — деградация индекса"
+
+      - alert: VoterpoolVotesExpiredSpike
+        expr: increase(voterpool_proposals_closed_total{final_status="EXPIRED"}[1h]) > 5
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Всплеск EXPIRED-закрытий — агенты перестали голосовать"
+
+  - name: node-disk
+    rules:
+      - alert: NodeFilesystemAlmostFull
+        expr: |
+          max by (instance, device, mountpoint) (
+            (node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs|nsfs"}
+              - node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs|nsfs"})
+            / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs|nsfs"}
+          ) * 100 > 85
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Файловая система {{ $labels.mountpoint }} заполнена > 85%"

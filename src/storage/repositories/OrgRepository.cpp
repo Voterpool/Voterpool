@@ -48,10 +48,8 @@ std::optional<Membership> OrgRepository::getMembership(const std::string& orgId,
 
 void OrgRepository::putMembership(rocksdb::WriteBatch& batch, const Membership& m) {
     db_.put(batch, "cf_memberships", Keys::membership(m.org_id, m.agent_id), Codec::serializeMembership(m));
-    if (m.status == MemberStatus::ACTIVE) {
-        db_.put(batch, "cf_agent_orgs", Keys::agentOrgs(m.agent_id, m.org_id),
-                std::string(toString(m.role)) + "/" + toString(m.status));
-    }
+    db_.put(batch, "cf_agent_orgs", Keys::agentOrgs(m.agent_id, m.org_id),
+            std::string(toString(m.role)) + "/" + toString(m.status));
 }
 
 bool OrgRepository::putMembership(const Membership& m) {

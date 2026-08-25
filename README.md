@@ -148,9 +148,21 @@ Backup:
 
 ## Configuration
 
-Configuration is a YAML file (`config/default.yaml`), overridable by environment (`VOTERPOOL_{SECTION}_{KEY}`, e.g. `VOTERPOOL_SERVER_PORT=8081`) and CLI flags (`--config`, `--port`, `--db-path`, `--log-level`, `--daemon`). Precedence: **CLI > environment > file**. Invalid values abort startup with exit code 1.
+Configuration is a YAML file (`config/default.yaml`), overridable by environment (`VOTERPOOL_{SECTION}_{KEY}`, e.g. `VOTERPOOL_SERVER_PORT=8081`; nested keys are flattened, e.g. `VOTERPOOL_SERVER_SSL_CERT_PATH`) and CLI flags (`--config`, `--port`, `--db-path`, `--log-level`, `--daemon`). Precedence: **CLI > environment > file**. Invalid values abort startup with exit code 1.
 
-Key sections: `server` (host/port/threads), `storage` (RocksDB path), `auth` (native tokens), `sse` (heartbeat interval), `metrics`, `mcp` (protocol version, tools-list TTL), `logging`. See `config/default.yaml` for the annotated reference.
+Key sections: `server` (host/port/threads, optional TLS, body-size limit, idle timeout), `storage` (RocksDB path and tuning), `auth` (native tokens), `sse` (heartbeat interval), `metrics`, `mcp` (protocol version, tools-list TTL), `logging`, `rate_limit`. See `config/default.yaml` for the annotated reference.
+
+### TLS (optional, Self-Hosted)
+
+```yaml
+server:
+  ssl:
+    enabled: true
+    cert_path: "/etc/ssl/certs/voterpool.crt"
+    key_path: "/etc/ssl/private/voterpool.key"
+```
+
+With `ssl.enabled: true` both MCP (`/mcp`) and SSE (`/mcp/events`) are served over HTTPS; a missing or unreadable certificate/key aborts startup with exit code 1. Default remains plaintext HTTP.
 
 ## Build
 

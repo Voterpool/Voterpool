@@ -109,7 +109,7 @@
 - **THEN** плейбук возвращается без ошибки авторизации
 ### Requirement: Кэшируемый каталог tools/list
 
-Метод tools/list ДОЛЖЕН возвращать структурный результат верхнего уровня с полем resultType "complete" (без обёртки content), содержащий JSON-схемы всех инструментов в массиве tools, а также ttlMs и cacheScope: "server", в детерминированном лексикографическом порядке по имени инструмента. Каждый инструмент в каталоге ОБЯЗАН иметь description и валидную inputSchema (JSON Schema draft 2020-12). Значение ttlMs ДОЛЖНО быть конфигурируемым (по умолчанию 300000 мс). Поле decision в схеме cast_vote ДОЛЖНО быть enum всех теоретических вариантов (YES, NO, ABSTAIN); фактическая валидация выполняется по модели консенсуса организации.
+Метод tools/list ДОЛЖЕН возвращать структурный результат верхнего уровня с полем resultType "complete" (без обёртки content), содержащий JSON-схемы всех инструментов в массиве tools, а также ttlMs и cacheScope: "server", в детерминированном лексикографическом порядке по имени инструмента. Каждый инструмент в каталоге ОБЯЗАН иметь description и валидную inputSchema (JSON Schema draft 2020-12): inputSchema ДОЛЖЕН быть объектом с type "object"; каждое значение в properties ДОЛЖНО быть объектом-схемой с полем type из множества string|number|integer|boolean|array; массив required ДОЛЖЕН быть подмножеством имён properties. Значение ttlMs ДОЛЖНО быть конфигурируемым (по умолчанию 300000 мс). Поле decision в схеме cast_vote ДОЛЖНО быть enum всех теоретических вариантов (YES, NO, ABSTAIN); фактическая валидация выполняется по модели консенсуса организации.
 
 #### Scenario: Структурный каталог с resultType complete
 
@@ -125,6 +125,11 @@
 
 - **WHEN** агент вызывает tools/list
 - **THEN** каждый элемент массива tools содержит name, description и inputSchema типа object
+
+#### Scenario: Свойства схем — объекты JSON Schema
+
+- **WHEN** strict-валидатор JSON Schema draft 2020-12 проверяет inputSchema каждого инструмента каталога
+- **THEN** каждая схема валидна: каждое свойство — объект с корректным type, required не содержит имён вне properties
 ### Requirement: Метаданные клиента _meta
 
 Поле `_meta.io.modelcontextprotocol/clientInfo` (имя/версия клиента) ДОЛЖНО извлекаться для логов и метрик и НЕ ДОЛЖНО влиять на авторизацию.
@@ -136,7 +141,7 @@
 
 ### Requirement: Контракт ошибок JSON-RPC
 
-Любая ошибка валидации или бизнес-логики ДОЛЖНА возвращаться с HTTP-статусом 200 в теле JSON-RPC 2.0 с полем error. Исключения: Parse error (-32700) → HTTP 400; деградация хранилища (-32050) → HTTP 503. Поле data ОБЯЗАТЕЛЬНО для кастомных кодов (-32000..-32099) и опционально для стандартных. Стандартные коды: -32700 Parse error (id = null), -32600 Invalid Request, -32601 Method not found, -32602 Invalid params, -32603 Internal error. Кастомные коды: -32001 Unauthorized, -32002 Forbidden, -32003 Conflict, -32004 Not Found, -32005 Business Rule Violation.
+Любая ошибка валидации или бизнес-логики ДОЛЖНА возвращаться с HTTP-статусом 200 в теле JSON-RPC 2.0 с полем error. Исключения: Parse error (-32700) → HTTP 400; деградация хранилища (-32050) → HTTP 503. Поле data ОБЯЗАТЕЛЬНО для кастомных кодов (-32000..-32099) и опционально для стандартных. Стандартные коды: -32700 Parse error (id = null), -32600 Invalid Request, -32601 Method not found, -32602 Invalid params, -32603 Internal error. Кастомные коды: -32001 Unauthorized, -32002 Forbidden, -32003 Conflict, -32004 Not Found, -32005 Business Rule Violation. Предварительные проверки протокола (версия, заголовки MCP) НЕ ДОЛЖНЫ перехватывать запросы, тело которых не является корректным JSON: такие запросы ДОЛЖНЫ доходить до диспетчеризации и получать -32700 + HTTP 400 независимо от значений заголовков Mcp-Method/Mcp-Name.
 
 #### Scenario: Ошибка бизнес-логики с HTTP 200
 
@@ -153,6 +158,10 @@
 - **WHEN** обязательный аргумент отсутствует или передан неверного типа (строка вместо числа, невалидный UUID)
 - **THEN** сервер возвращает error.code = -32602 Invalid params
 
+#### Scenario: Битое тело с заголовком Mcp-Method доходит до хендлера
+
+- **WHEN** POST /mcp несёт неразборчивое тело и заголовок Mcp-Method: server/discover
+- **THEN** сервер отвечает HTTP 400 с error.code = -32700 и id = null (а не -32600 от предварительной проверки)
 ### Requirement: Резервный канал авторизации через _meta
 
 POST /mcp ДОЛЖЕН принимать токен авторизации из поля `_meta.io.voterpool/auth.bearer`, когда заголовок Authorization отсутствует или пуст. Заголовок Authorization ОБЯЗАН иметь приоритет: при его наличии `_meta`-канал не рассматривается. Токен из `_meta` проходит ту же валидацию, что и заголовочный (хэширование и O(1) lookup); невалидный токен в любом канале ДОЛЖЕН возвращать -32001 Unauthorized. Эндпоинт GET /mcp/events ОСТАЁТСЯ header-only: `_meta`-канал к нему неприменим (GET без тела). Сервер НЕ ДОЛЖЕН логировать значения bearer-токенов ни из заголовков, ни из `_meta`.
@@ -198,7 +207,7 @@ POST /mcp ДОЛЖЕН принимать токен авторизации из
 
 ### Requirement: Инструмент get_proposal
 
-Инструмент `get_proposal` ДОЛЖЕН принимать `{proposal_id}` и возвращать полную карточку предложения: proposal_id, org_id, creator_id, title, description, type, status, счётчики сил (yes_power, no_power, abstain_power), total_voting_power_at_creation, voters_count, created_at, expires_at, updated_at, action_applied и config_delta_applied признаки. Для ACTIVE участника организации ответ ДОЛЖЕН дополнительно включать массив голосов [{agent_id, decision, power_at_vote}]. Доступ ДОЛЖЕН быть только у участников организации: не-участник → -32002; несуществующий proposal_id → -32004.
+Инструмент `get_proposal` ДОЛЖЕН принимать `{proposal_id}` и возвращать полную карточку предложения: proposal_id, org_id, creator_id, title, description, type, status, счётчики сил (yes_power, no_power, abstain_power), total_voting_power_at_creation, voters_count, created_at, expires_at, updated_at, action_applied и config_delta_applied признаки. Признаки ДОЛЖНЫ отражать фактический исход применения эффектов при закрытии предложения, сохранённый на самом предложении в момент финализации: config_delta_applied = true только если дельта действительно записана в конфигурацию организации; action_applied содержит kind действия только если действие фактически применено (лимиты пропустили активацию, цель была PENDING), иначе null. Значения признаков НЕ ДОЛЖНЫ выводиться из статуса PASSED или наличия полей config_delta/action в предложении; карточка ДОЛЖНА быть согласована с событием proposal_closed того же предложения. Для ACTIVE участника организации ответ ДОЛЖЕН дополнительно включать массив голосов [{agent_id, decision, power_at_vote}]. Доступ ДОЛЖЕН быть только у участников организации: не-участник → -32002; несуществующий proposal_id → -32004.
 
 #### Scenario: Полная карточка для участника
 
@@ -214,6 +223,21 @@ POST /mcp ДОЛЖЕН принимать токен авторизации из
 
 - **WHEN** участник вызывает get_proposal с неизвестным proposal_id
 - **THEN** сервер возвращает -32004 Not Found
+
+#### Scenario: Лимит заблокировал применение действия
+
+- **WHEN** ACTION APPROVE_MEMBER получает статус PASSED при исчерпанном max_agents, затем участник вызывает get_proposal
+- **THEN** карточка возвращает action_applied = null и config_delta_applied = false — те же значения, что в событии proposal_closed этого предложения
+
+#### Scenario: Успешно применённые эффекты видны в карточке
+
+- **WHEN** предложение с config_delta проходит и дельта записана в организацию, затем участник вызывает get_proposal
+- **THEN** карточка возвращает config_delta_applied = true и полный смерженный конфиг в поле config_delta
+
+#### Scenario: Действие применено — kind в карточке
+
+- **WHEN** ACTION APPROVE_MEMBER прошёл и участник активирован, затем вызывается get_proposal
+- **THEN** карточка возвращает action_applied = "APPROVE_MEMBER"
 
 ### Requirement: Фильтр updated_since у get_proposals
 

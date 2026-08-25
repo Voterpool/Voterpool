@@ -1,5 +1,6 @@
 #pragma once
 
+#include "consensus/ProposalLock.h"
 #include "core/IClock.h"
 #include "core/Result.h"
 #include "domain/Enums.h"
@@ -25,6 +26,11 @@ struct VoteReceipt {
     double current_no_power = 0.0;
 };
 
+struct DissolveOutcome {
+    std::int64_t closedCount = 0;
+    std::vector<SseEvent> events;
+};
+
 class ConsensusEngine {
 public:
     struct Deps {
@@ -34,8 +40,10 @@ public:
         class VoteRepository* votes = nullptr;
         class IndexRepository* indexes = nullptr;
         class AuditLogRepository* audit = nullptr;
-        class ProposalLockRegistry* locks = nullptr;
+        KeyedMutexRegistry* locks = nullptr;
+        KeyedMutexRegistry* orgLocks = nullptr;
         IClock* clock = nullptr;
+        class OrgNameRegistry* orgNames = nullptr;
         std::function<void(const SseEvent&)> emit;
     };
 
@@ -44,7 +52,7 @@ public:
     Result<VoteReceipt> castVote(const std::string& agentId, const std::string& proposalId, VoteDecision decision);
     void closeExpired(std::int64_t nowSec, size_t maxBatch = 1000);
     bool closeProposalByTimer(const std::string& orgId, const std::string& proposalId);
-    std::vector<SseEvent> expireAllForDissolve(rocksdb::WriteBatch& batch, const std::string& orgId);
+    Result<DissolveOutcome> dissolveOrganization(const std::string& orgId, const std::string& dissolvedBy);
 
 private:
     struct ClosedInfo {

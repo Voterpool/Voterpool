@@ -9,17 +9,12 @@ ToolDef defSearchOrganizations() {
         "search_organizations",
         "Search and feed of ACTIVE organizations: by name substring, tags (AND), category, with cursor pagination",
         [] {
-            Json::Value tags(Json::arrayValue);
-            tags.append("string");
-            Json::Value tagSchema;
-            tagSchema["type"] = "array";
-            tagSchema["items"] = Json::Value("string");
-            return schemaObject({{"query", Json::Value("string")},
-                                 {"tags", std::move(tagSchema)},
-                                 {"category", Json::Value("string")},
-                                 {"type", Json::Value("string")},
-                                 {"cursor", Json::Value("string")},
-                                 {"limit", Json::Value("integer")}},
+            return schemaObject({{"query", schemaString()},
+                                 {"tags", schemaArrayOf("string")},
+                                 {"category", schemaString()},
+                                 {"type", schemaString()},
+                                 {"cursor", schemaString()},
+                                 {"limit", schemaInteger()}},
                                 {});
         },
         [](ToolContext& tc, const Json::Value& args) -> Result<Json::Value> {
@@ -60,7 +55,7 @@ ToolDef defSearchOrganizations() {
             std::set<std::string> candidates;
             bool haveCandidateSet = false;
             if (!query.empty()) {
-                candidates = tc.app.indexes->scanNameQuery(query, 5000);
+                candidates = tc.app.orgNames->matchQuery(query);
                 haveCandidateSet = true;
             }
             for (const auto& t : tags) {

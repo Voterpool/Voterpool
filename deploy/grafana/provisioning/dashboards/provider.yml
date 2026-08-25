@@ -1,0 +1,14 @@
+apiVersion: 1
+
+providers:
+  - name: voterpool
+    orgId: 1
+    folder: Voterpool
+    folderUid: voterpool
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: false
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

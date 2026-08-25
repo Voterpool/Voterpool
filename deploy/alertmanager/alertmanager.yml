@@ -1,0 +1,28 @@
+# Alertmanager: маршрутизация по severity. Ресиверы-плейсхолдеры —
+# заполните реальными адресами (webhook/email/slack) перед прод-эксплуатацией.
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: default-placeholder
+  group_by: ["alertname", "severity"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 12h
+  routes:
+    - matchers:
+        - severity = "critical"
+      receiver: critical-placeholder
+      group_wait: 0s
+      repeat_interval: 1h
+
+receivers:
+  - name: default-placeholder
+    webhook_configs:
+      # Плейсхолдер: замените на реальный endpoint или удалите.
+      - url: "http://127.0.0.1:1/"
+        send_resolved: true
+  - name: critical-placeholder
+    webhook_configs:
+      - url: "http://127.0.0.1:1/"
+        send_resolved: true

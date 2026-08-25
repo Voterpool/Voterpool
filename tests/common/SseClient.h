@@ -20,6 +20,9 @@ public:
 
     bool connected() const { return fd_ >= 0; }
 
+    // HTTP-заголовки ответа (блок до \r\n\r\n); тело остаётся в буфере кадров.
+    std::string responseHead(int timeoutMs = 3000);
+
     std::optional<Event> nextEvent(int timeoutMs = 5000);
     bool sawKeepAliveWithin(int timeoutMs);
 

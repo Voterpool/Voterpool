@@ -102,6 +102,9 @@ TEST(E2eShutdown, SigtermDrainsSseAndExitsZero) {
     std::this_thread::sleep_for(std::chrono::milliseconds(300));
 
     ASSERT_EQ(kill(pid, SIGTERM), 0);
+    // Повторный сигнал во время процедуры остановки должен быть безопасен.
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    ASSERT_EQ(kill(pid, SIGTERM), 0);
 
     bool gotShutdownFrame = false;
     for (int i = 0; i < 10 && !gotShutdownFrame; ++i) {
@@ -110,13 +113,32 @@ TEST(E2eShutdown, SigtermDrainsSseAndExitsZero) {
     }
     EXPECT_TRUE(gotShutdownFrame) << "expected server_shutdown frame during drain";
 
+    // Draining-фаза (background-workers): до выхода процесса новые POST /mcp
+    // мгновенно получают HTTP 503, /health продолжает отвечать 200.
+    bool sawDrain503 = false;
+    bool sawHealthDuringDrain = false;
     int status = 0;
-    int waited = 0;
-    while (waitpid(pid, &status, WNOHANG) == 0 && waited < 15000) {
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+    while (waitpid(pid, &status, WNOHANG) == 0) {
+        if (!sawDrain503) {
+            HttpResponse drain = HttpUtil::postJson("127.0.0.1", port, "/mcp",
+                                                    Json::Value(Json::objectValue),
+                                                    {{"Content-Type", "application/json"}}, 500);
+            if (drain.status == 503) sawDrain503 = true;
+        }
+        if (!sawHealthDuringDrain) {
+            HttpResponse health = HttpUtil::get("127.0.0.1", port, "/health", {}, 500);
+            if (health.status == 200) sawHealthDuringDrain = true;
+        }
+        if (std::chrono::steady_clock::now() > deadline) break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(25));
+    }
+    for (int waitedMs = 0; waitpid(pid, &status, WNOHANG) == 0 && waitedMs < 15000; waitedMs += 100) {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        waited += 100;
     }
     ASSERT_NE(waitpid(pid, &status, WNOHANG), 0) << "process did not exit after SIGTERM";
+    EXPECT_TRUE(sawDrain503) << "POST /mcp during drain must get immediate HTTP 503";
+    EXPECT_TRUE(sawHealthDuringDrain) << "GET /health must stay available until exit";
     EXPECT_TRUE(WIFEXITED(status));
     EXPECT_EQ(WEXITSTATUS(status), 0);
 

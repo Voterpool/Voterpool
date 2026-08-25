@@ -5,6 +5,66 @@
 
 namespace voterpool {
 
+namespace {
+
+// Каталог метрик docs/11 §3: имя → тип и человекочитаемое описание (# HELP).
+struct MetricCatalogEntry {
+    const char* name;
+    const char* type;
+    const char* help;
+};
+
+const MetricCatalogEntry kCatalog[] = {
+    {"voterpool_actions_applied_total", "counter", "Applied ACTION proposals by kind"},
+    {"voterpool_agents_total", "gauge", "Registered agents"},
+    {"voterpool_consensus_early_exit_total", "counter", "Early-Exit optimization triggers during voting"},
+    {"voterpool_db_healthy", "gauge", "1 = storage healthy; 0 = degraded"},
+    {"voterpool_db_write_failures_total", "counter", "Storage write failures by kind"},
+    {"voterpool_http_request_duration_seconds", "histogram", "POST /mcp request latency"},
+    {"voterpool_mcp_client_meta_total", "counter", "Requests with/without _meta clientInfo"},
+    {"voterpool_mcp_requests_total", "counter", "MCP calls by method, tool and outcome"},
+    {"voterpool_orgs_active", "gauge", "ACTIVE organizations"},
+    {"voterpool_orgs_dissolved_total", "counter", "Organization dissolutions"},
+    {"voterpool_proposals_active", "gauge", "Active proposals"},
+    {"voterpool_proposals_closed_total", "counter", "Closed proposals by final status"},
+    {"voterpool_proposals_created_total", "counter", "Created proposals"},
+    {"voterpool_rpc_errors_total", "counter", "RPC errors by JSON-RPC error code"},
+    {"voterpool_schema_migration_records_total", "counter", "Records transformed by schema migrations"},
+    {"voterpool_sse_connections", "gauge", "Active SSE streams"},
+    {"voterpool_sse_events_sent_total", "counter", "Delivered SSE events by event type"},
+    {"voterpool_sse_queue_depth", "gauge", "SSE dispatcher queue depth"},
+    {"voterpool_sse_write_failures_total", "counter", "Failed SSE writes by event type"},
+    {"voterpool_cast_vote_duration_seconds", "histogram", "End-to-end cast_vote duration (lock to commit)"},
+    {"voterpool_ttl_scan_duration_seconds", "histogram", "TTL active-proposal index scan duration"},
+    {"voterpool_ttl_scans_total", "counter", "TTL worker scan cycles"},
+    {"voterpool_votes_cast_total", "counter", "Accepted votes by decision"},
+    {"voterpool_rocksdb_block_cache_usage", "gauge", "RocksDB block cache usage in bytes"},
+    {"voterpool_rocksdb_block_cache_capacity", "gauge", "RocksDB block cache capacity in bytes"},
+    {"voterpool_rocksdb_block_cache_hits_total", "gauge", "RocksDB block cache hits"},
+    {"voterpool_rocksdb_block_cache_misses_total", "gauge", "RocksDB block cache misses"},
+    {"voterpool_rocksdb_estimate_pending_compaction_bytes", "gauge", "Estimated bytes pending compaction"},
+    {"voterpool_rocksdb_wal_synced_total", "gauge", "WAL file syncs"},
+    {"voterpool_rocksdb_flush_write_bytes_total", "gauge", "Bytes written by memtable flushes"},
+    {"voterpool_rocksdb_compaction_read_bytes_total", "gauge", "Bytes read by compactions"},
+    {"voterpool_rocksdb_compaction_write_bytes_total", "gauge", "Bytes written by compactions"},
+};
+
+std::string metricHelp(const std::string& name) {
+    for (const auto& e : kCatalog) {
+        if (name == e.name) return e.help;
+    }
+    return name;
+}
+
+std::string metricType(const std::string& name, const std::string& fallback) {
+    for (const auto& e : kCatalog) {
+        if (name == e.name) return e.type;
+    }
+    return fallback;
+}
+
+}  // namespace
+
 MetricsRegistry& MetricsRegistry::instance() {
     static MetricsRegistry inst;
     return inst;
@@ -47,30 +107,10 @@ void MetricsRegistry::addLabelHelp(const std::string& name, const std::string& t
 }
 
 void MetricsRegistry::registerDefaults() {
-    static const char* kCounters[] = {
-        "voterpool_actions_applied_total",
-        "voterpool_agents_total",
-        "voterpool_consensus_early_exit_total",
-        "voterpool_db_write_failures_total",
-        "voterpool_mcp_requests_total",
-        "voterpool_orgs_dissolved_total",
-        "voterpool_proposals_closed_total",
-        "voterpool_proposals_created_total",
-        "voterpool_rpc_errors_total",
-        "voterpool_sse_events_sent_total",
-        "voterpool_sse_write_failures_total",
-        "voterpool_ttl_scans_total",
-        "voterpool_votes_cast_total",
-    };
-    for (const char* name : kCounters) addLabelHelp(name, "counter", name);
-    static const char* kGauges[] = {
-        "voterpool_db_healthy",
-        "voterpool_orgs_active",
-        "voterpool_proposals_active",
-        "voterpool_sse_connections",
-        "voterpool_sse_queue_depth",
-    };
-    for (const char* name : kGauges) addLabelHelp(name, "gauge", name);
+    for (const auto& e : kCatalog) {
+        if (std::string(e.type) == "histogram") continue;  // гистограммы живут в своём реестре
+        addLabelHelp(e.name, e.type, e.help);
+    }
 }
 
 std::shared_ptr<MetricsRegistry::Series> MetricsRegistry::seriesFor(MetricDef& m, const std::vector<std::pair<std::string, std::string>>& labels) {
@@ -86,13 +126,13 @@ std::shared_ptr<MetricsRegistry::Series> MetricsRegistry::seriesFor(MetricDef& m
 
 void MetricsRegistry::incCounter(const std::string& name, const std::vector<std::pair<std::string, std::string>>& labels, std::int64_t delta) {
     MetricDef& m = getMetric(name);
-    if (m.type.empty()) addLabelHelp(name, "counter", name);
+    if (m.type.empty()) addLabelHelp(name, metricType(name, "counter"), metricHelp(name));
     seriesFor(m, labels)->value.fetch_add(delta, std::memory_order_relaxed);
 }
 
 void MetricsRegistry::setGauge(const std::string& name, const std::vector<std::pair<std::string, std::string>>& labels, std::int64_t value) {
     MetricDef& m = getMetric(name);
-    if (m.type.empty()) addLabelHelp(name, "gauge", name);
+    if (m.type.empty()) addLabelHelp(name, metricType(name, "gauge"), metricHelp(name));
     seriesFor(m, labels)->value.store(value, std::memory_order_relaxed);
 }
 
@@ -106,7 +146,7 @@ void MetricsRegistry::observe(const std::string& name, double seconds) {
         auto it = histograms_.find(name);
         if (it == histograms_.end()) {
             auto def = std::make_shared<HistogramDef>();
-            def->help = name;
+            def->help = metricHelp(name);
             for (size_t i = 0; i < kNumBuckets; ++i) {
                 def->buckets.push_back(kBuckets[i]);
                 def->bucketCounts.push_back(std::make_shared<std::atomic<std::int64_t>>(0));
@@ -138,8 +178,9 @@ std::string MetricsRegistry::expose() const {
     }
     for (const auto& [name, def] : metrics) {
         std::lock_guard lock(def->mutex);
+        // Конвенция exposition format: сначала # HELP, затем # TYPE.
+        out << "# HELP " << name << " " << (!def->help.empty() ? def->help : metricHelp(name)) << "\n";
         out << "# TYPE " << name << " " << def->type << "\n";
-        if (!def->help.empty() && def->help != name) out << "# HELP " << name << " " << def->help << "\n";
         for (const auto& [key, s] : def->series) {
             out << name << formatLabels(s->labels) << " " << s->value.load(std::memory_order_relaxed) << "\n";
         }
@@ -154,6 +195,7 @@ std::string MetricsRegistry::expose() const {
         hists = histograms_;
     }
     for (const auto& [name, h] : hists) {
+        out << "# HELP " << name << " " << (!h->help.empty() ? h->help : metricHelp(name)) << "\n";
         out << "# TYPE " << name << " histogram\n";
         for (size_t i = 0; i < h->buckets.size(); ++i) {
             out << name << "_bucket{le=\"" << h->buckets[i] << "\"} " << h->bucketCounts[i]->load(std::memory_order_relaxed) << "\n";

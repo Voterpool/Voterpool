@@ -1,6 +1,7 @@
 #include "core/CryptoUtil.h"
 #include "mcp/McpHandler.h"
 #include "mcp/tools/ToolDefs.h"
+#include "mcp/tools/ToolHelpers.h"
 #include "tests/common/Harness.h"
 
 using namespace voterpool;
@@ -99,4 +100,75 @@ TEST(CryptoUtils, UuidAndTokenFormats) {
     EXPECT_FALSE(isValidUuid(id + "x"));
     EXPECT_TRUE(generateApiKey().rfind("voterpool_sec_", 0) == 0);
     EXPECT_EQ(generateApiKey().size(), std::string("voterpool_sec_").size() + 48);
+}
+
+namespace {
+
+OrgConfig consentBase() {
+    OrgConfig c;
+    c.consensus_model = ConsensusModel::CONSENT;
+    c.quorum_percentage = 51;
+    c.voting_duration_sec = 3600;
+    c.power_distribution = PowerDistribution::EQUAL;
+    return c;
+}
+
+}  // namespace
+
+TEST(OrgConfigMerge, PartialDeltaInheritsBaseFields) {
+    Json::Value delta;
+    delta["voting_duration_sec"] = 7200;
+    OrgConfig base = consentBase();
+    auto r = mcp::parseOrgConfig(delta, true, &base);
+    ASSERT_TRUE(r.ok());
+    EXPECT_EQ(r.value().consensus_model, ConsensusModel::CONSENT);
+    EXPECT_EQ(r.value().power_distribution, PowerDistribution::EQUAL);
+    EXPECT_EQ(r.value().quorum_percentage, 51);
+    EXPECT_EQ(r.value().voting_duration_sec, 7200);
+}
+
+TEST(OrgConfigMerge, SharesOnConsentOrgRejectedThroughMerge) {
+    Json::Value partial;
+    partial["power_distribution"] = "SHARES";
+    OrgConfig base = consentBase();
+    auto r = mcp::parseOrgConfig(partial, true, &base);
+    ASSERT_FALSE(r.ok());
+    EXPECT_EQ(r.error().code, -32005);
+
+    Json::Value full;
+    full["consensus_model"] = "CONSENT";
+    full["power_distribution"] = "SHARES";
+    r = mcp::parseOrgConfig(full, true, &base);
+    ASSERT_FALSE(r.ok());
+    EXPECT_EQ(r.error().code, -32005);
+}
+
+TEST(OrgConfigMerge, InvalidValuesThroughMergeRejected) {
+    OrgConfig base = consentBase();
+
+    Json::Value quorum;
+    quorum["quorum_percentage"] = 150;
+    EXPECT_EQ(mcp::parseOrgConfig(quorum, true, &base).error().code, -32602);
+
+    Json::Value duration;
+    duration["voting_duration_sec"] = 0;
+    EXPECT_EQ(mcp::parseOrgConfig(duration, true, &base).error().code, -32005);
+
+    Json::Value badModel;
+    badModel["consensus_model"] = "ANARCHY";
+    EXPECT_EQ(mcp::parseOrgConfig(badModel, true, &base).error().code, -32602);
+
+    Json::Value badDist;
+    badDist["power_distribution"] = "PLUTOCRACY";
+    EXPECT_EQ(mcp::parseOrgConfig(badDist, true, &base).error().code, -32602);
+}
+
+TEST(OrgConfigMerge, WithoutBaseLegacyDefaultsPreserved) {
+    Json::Value partial;
+    partial["power_distribution"] = "SHARES";
+    auto r = mcp::parseOrgConfig(partial, true);
+    ASSERT_TRUE(r.ok());
+    EXPECT_EQ(r.value().consensus_model, ConsensusModel::MAJORITY);
+    EXPECT_EQ(r.value().quorum_percentage, 51);
+    EXPECT_EQ(r.value().voting_duration_sec, 3600);
 }
