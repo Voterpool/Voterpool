@@ -1,6 +1,6 @@
 #pragma once
 
-// Directory plane (docs/16 §3.1, change add-shard-ready-ports).
+// Directory plane (docs/16 §3.1).
 // Единственная точка доступа к каталогу организаций: поиск по именам,
 // вторичные индексы тегов/категорий, лента ACTIVE и резолв
 // proposal→organization. Реализации: scaling::LocalDirectory.

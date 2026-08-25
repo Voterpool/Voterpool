@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Страж изоляции швов scaling (tasks 2.6, design Risks).
+"""Страж изоляции швов scaling.
 
 Файлы вне src/scaling НЕ ДОЛЖНЫ обращаться к внутренностям Directory/Identity
 плоскостей напрямую: OrgNameRegistry и auth-пути AgentRepository доступны

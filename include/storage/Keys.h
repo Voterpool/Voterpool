@@ -7,7 +7,7 @@
 #include <ctime>
 #include <string>
 
-// Раскладка keyspaces v2 (docs/01, docs/16 §3.2, change add-bucket-keyspace):
+// Раскладка keyspaces v2 (docs/01, docs/16 §3.2):
 //
 //   ОРГ-ПЛОСКОСТЬ (владелец — бакет организации):
 //     b{NNN}:org:{id}

@@ -31,7 +31,7 @@ int main(int argc, char** argv) {
             return 1;
         }
 
-        // Dry-run миграции схемы (tasks 3.2/3.4): валидация и отчёт без записи.
+        // Dry-run миграции схемы: валидация и отчёт без записи.
         bool migrateDryRun = false;
         for (int i = 1; i < argc; ++i) {
             if (std::string(argv[i]) == "--migrate-dry-run") migrateDryRun = true;

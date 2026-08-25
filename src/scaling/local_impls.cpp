@@ -6,8 +6,6 @@
 
 namespace voterpool::scaling {
 
-// ---- LocalDirectory ----
-
 std::set<std::string> LocalDirectory::matchName(const std::string& nameLowered) {
     return names_.matchQuery(nameLowered);
 }
@@ -46,8 +44,6 @@ std::optional<std::string> LocalDirectory::resolveProposal(const std::string& pr
     return orgId;
 }
 
-// ---- LocalIdentity ----
-
 LocalIdentity::LocalIdentity(AgentRepository& agents, OrgRepository& orgs)
     : agents_(agents), orgs_(orgs), tokenProvider_(std::make_unique<NativeAuthProvider>(agents)) {}
 
@@ -77,8 +73,7 @@ std::vector<Membership> LocalIdentity::listOrgsOfAgent(const std::string& agentI
 }
 
 void LocalIdentity::recordMembershipLink(rocksdb::WriteBatch& batch, const Membership& m) {
-    // putMembership пишет membership и agent_orgs одним батчем —
-    // атомарность пары сохраняется (design D3).
+    // putMembership пишет membership и agent_orgs одним батчем — пара атомарна.
     orgs_.putMembership(batch, m);
 }
 
@@ -86,8 +81,6 @@ void LocalIdentity::removeMembershipLink(rocksdb::WriteBatch& batch, const std::
                                          const std::string& agentId) {
     orgs_.deleteMembership(batch, orgId, agentId);
 }
-
-// ---- LocalEventBus ----
 
 void LocalEventBus::subscribeAllOrgs(const std::vector<std::string>& orgIds,
                                      const std::string& agentId,

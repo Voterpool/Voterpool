@@ -1,6 +1,5 @@
-// Юнит-тесты раскладки keyspaces v2 (бакеты) — change add-bucket-keyspace.
-// Включает заморозку алгоритма размещения тест-векторами (tasks 1.1/1.2)
-// и инвентаризационный тест полноты классификации Keys.h (task 2.1).
+// Юнит-тесты раскладки keyspaces v2 (бакеты): заморозка алгоритма
+// размещения тест-векторами и инвентаризация классификации Keys.h.
 #include "scaling/BucketResolver.h"
 #include "storage/Keys.h"
 
@@ -165,7 +164,7 @@ TEST(KeysLegacyPorted, JoinLimitUsesUtcDayStamp) {
     EXPECT_EQ(Keys::joinLimit("o1", ts), p + "join_limit:o1:20231114");
 }
 
-// Инвентаризация (task 2.1): каждая inline-функция Keys.h классифицирована
+// Инвентаризация: каждая inline-функция Keys.h классифицирована
 // в манифесте как scoped|system. Новая функция без записи ломает тест.
 TEST(KeysV2, InventoryManifestCoversEveryConstructor) {
     // 1. Прочитать манифест.

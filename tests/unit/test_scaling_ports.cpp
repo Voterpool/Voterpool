@@ -1,6 +1,6 @@
-// Контрактные тесты портов scaling (design D5): один и тот же набор
-// сценариев прогоняется против Local*-имплов (RocksDB) и фейков.
-// Фейки переиспользуются будущими Remote-имплами Этапа 3.
+// Контрактные тесты портов scaling: один и тот же набор сценариев
+// прогоняется против Local*-имплов (RocksDB) и фейков.
+// Фейки переиспользуются будущими Remote-имплами.
 #include "scaling/IEventBus.h"
 #include "scaling/IDirectory.h"
 #include "scaling/IIdentity.h"
@@ -247,7 +247,7 @@ TEST(ScalingPortsContract, LocalResolveTokenUnknown) {
     EXPECT_FALSE(b->idn->resolveToken("").has_value());
 }
 
-// Edge: агент без организаций — пустой список без ошибок (спека shard-seams).
+// Edge: агент без организаций — пустой список без ошибок.
 TEST(ScalingPortsContract, LocalAgentWithoutOrgs) {
     auto b = Backends::create(false);
     std::string err;

@@ -36,14 +36,14 @@ bool SchemaManager::writeVersion(int v) {
 
 namespace {
 
-// Классификация ключей миграции v2→v3 (design D3, change add-bucket-keyspace).
+// Классификация ключей миграции v2→v3.
 enum class MigrateClass { Scoped, Skip, Fatal };
 
 // Целевой ключ с префиксом бакета; orgId выводится из ключа или значения.
 MigrateClass classifyKey(const std::string& cf, const std::string& k,
                          const std::string& value, std::string& dest, std::string& err) {
     using namespace Keys;
-    // Идемпотентность (tasks 3.2): ключ УЖЕ с префиксом бакета — перенесён
+    // Идемпотентность: ключ УЖЕ с префиксом бакета — перенесён
     // ранее (докат после сбоя). Системная плоскость префикса не имеет,
     // коллизии невозможны.
     if (k.size() > 5 && k[0] == 'b' && std::isdigit(static_cast<unsigned char>(k[1])) &&
@@ -124,7 +124,7 @@ bool SchemaManager::migrateTo(int from, int to) {
     std::int64_t records = 0;
     if (from == 2 && to == 3) {
         if (!migrateTo3(records)) return false;
-        if (dryRun_) return true;  // версия и данные не трогаются (tasks 3.2)
+        if (dryRun_) return true;  // версия и данные не трогаются
         if (!writeVersion(to)) return false;
         MetricsRegistry::instance().incCounter(
             "voterpool_schema_migration_records_total",
@@ -187,7 +187,7 @@ bool SchemaManager::migrateTo(int from, int to) {
 
 
 // ---- Миграция v2→v3: префикс логического бакета b{NNN}: для орг-плоскости ----
-// Design D3 (change add-bucket-keyspace): валидация ДО мутаций; батчи по 10k;
+// Валидация ДО мутаций; батчи по 10k;
 // чекпоинт-маркер в том же WriteBatch → докат после падения без дублей и потерь;
 // dry-run считает и репортит, ничего не пишет.
 bool SchemaManager::migrateTo3(std::int64_t& records) {

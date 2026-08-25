@@ -1,5 +1,4 @@
-// Микро-бенчмарк горячего пути (design D5, tasks 3.3): p50/p99 операций,
-// проходящих через порты Directory/Identity после Этапа 1.
+// Микро-бенчмарк горячего пути: p50/p99 операций на портах Directory/Identity.
 // Запуск: voterpool_hot_path_bench <label> [iterations]
 // Вывод: одна JSON-строка с перцентилями в наносекундах.
 #include "core/Config.h"
@@ -162,8 +161,8 @@ int main(int argc, char** argv) {
         samples[3].ns.push_back(
             std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count());
 
-        // Полный тик TTL-воркера без истёкших предложений: измеряет
-        // стоимость скана active_proposals (design D4, tasks 5.2).
+        // Полный тик TTL-воркера без истёкших предложений: стоимость
+        // скана active_proposals.
         t0 = std::chrono::steady_clock::now();
         app.engine->closeExpired(clock.nowSec() + 1000000);
         t1 = std::chrono::steady_clock::now();

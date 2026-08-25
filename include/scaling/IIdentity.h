@@ -1,6 +1,6 @@
 #pragma once
 
-// Identity plane (docs/16 §3.1, change add-shard-ready-ports).
+// Identity plane (docs/16 §3.1).
 // Единственная точка доступа call-site'ов к агентам: резолв токена,
 // создание, профиль, список организаций агента и связь agent↔org.
 // Реализации: scaling::LocalIdentity (standalone, по умолчанию).
@@ -25,7 +25,7 @@ public:
     virtual ~IIdentity() = default;
 
     // Резолв Bearer-токена → контекст агента; неизвестный токен → nullopt.
-    // Формат ошибок middleware не меняется (спека shard-seams).
+    // Формат ошибок middleware не меняется.
     virtual std::optional<AgentContext> resolveToken(const std::string& token) = 0;
 
     // Регистрация агента: false + текст ошибки в *outErr при отказе.

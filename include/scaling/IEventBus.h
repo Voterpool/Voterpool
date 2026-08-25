@@ -1,6 +1,6 @@
 #pragma once
 
-// Event plane (docs/16 §3.1, change add-shard-ready-ports).
+// Event plane (docs/16 §3.1).
 // Единственная точка подписки и доставки SSE-событий. Реализация:
 // scaling::LocalEventBus (обёртка SseHub, standalone).
 
