@@ -146,6 +146,29 @@ stateDiagram-v2
 ./build/voterpool checkpoint --config config/default.yaml --path /backups/snap_$(date +%s)
 ```
 
+## Скаффолдинг наблюдаемости (Prometheus + Grafana)
+
+Готовый self-hosted стек наблюдаемости лежит в [`deploy/`](deploy/) — Docker Compose с закреплёнными версиями образов, автопровижинингом дашбордов Grafana и алертами из каталога метрик.
+
+Требования: Docker + Docker Compose v2 на одном Linux-хосте.
+
+**Вариант 2 — всё в контейнерах (основной).** Сам voterpool запускается контейнером (distroless) рядом со стеком:
+
+```bash
+./build.sh && docker build -f deploy/voterpool.Dockerfile -t voterpool:local .
+cd deploy && cp .env.example .env   # задайте GRAFANA_ADMIN_PASSWORD
+docker compose up -d
+```
+
+**Вариант 1 — бинарник на хосте** (например, под systemd), observability-стек в Compose:
+
+```bash
+cd deploy && cp .env.example .env && \
+docker compose -f docker-compose.yml -f docker-compose.hostmode.yaml up -d
+```
+
+В обоих случаях поднимаются voterpool, Prometheus (скрейпит `/metrics`), Grafana (`http://127.0.0.1:3000`; datasource и четыре дашборда провижинятся при старте сами), node_exporter, Alertmanager, Loki и Alloy. Порты наблюдения привязаны только к `127.0.0.1`; секреты — в `deploy/.env` (в git не попадает).
+
 ## Конфигурация
 
 YAML-файл (`config/default.yaml`), переопределяется окружением (`VOTERPOOL_{SECTION}_{KEY}`) и CLI-флагами (`--config`, `--port`, `--db-path`, `--log-level`, `--daemon`). Приоритет: **CLI > окружение > файл**. Невалидные значения — немедленный выход с кодом 1.

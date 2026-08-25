@@ -1,4 +1,4 @@
-# Прод-конфиг voterpool для контейнера (мода B, docs/15 §4).
+# Прод-конфиг voterpool для контейнера (вариант 2, docs/15 §4).
 # Отличия от config/default.yaml: storage.path=/data (named volume), логи в stdout.
 server:
   ssl:

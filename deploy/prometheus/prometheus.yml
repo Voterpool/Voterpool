@@ -1,6 +1,6 @@
-# Prometheus — мода B (voterpool в compose).
+# Prometheus — вариант 2 (voterpool в compose).
 # Скрейп-цели вынесены в scrape.d/: маунт voterpool-bundled.yml или
-# voterpool-hostmode.yml (мода A) на путь scrape.d/voterpool.yml.
+# voterpool-hostmode.yml (вариант 1) на путь scrape.d/voterpool.yml.
 global:
   scrape_interval: 15s
   evaluation_interval: 15s

@@ -1,6 +1,6 @@
 ## Context
 
-Приложение экспортирует полный каталог метрик через анонимный `GET /metrics` и пишет структурированные логи (async spdlog, формат `[ts] [level] [thread] key=value`) в stdout — см. proposal.md. Артефактов развертывания нет. Решение по топологии зафиксировано в docs/15: один хост + Docker Compose, обе моды, стек M1+M2+M3. K8s вне скопа; артефакты переносимы в kube-prometheus-stack позже.
+Приложение экспортирует полный каталог метрик через анонимный `GET /metrics` и пишет структурированные логи (async spdlog, формат `[ts] [level] [thread] key=value`) в stdout — см. proposal.md. Артефактов развертывания нет. Решение по топологии зафиксировано в docs/15: один хост + Docker Compose, оба варианта, стек M1+M2+M3. K8s вне скопа; артефакты переносимы в kube-prometheus-stack позже.
 
 ## Goals / Non-Goals
 
@@ -18,9 +18,9 @@
 
 ## Decisions
 
-### D1. Compose без k8s-обвязки, мода A — override-файлом
+### D1. Compose без k8s-обвязки, вариант 1 — override-файлом
 
-Основной `docker-compose.yml` содержит все 7 сервисов (мода B). Мода A — `docker-compose.hostmode.yaml` с `deploy/voterpool` удалённым (`profiles: ["bundled"]` для сервиса приложения) и scrape-целью `host.docker.internal:8080` + `extra_hosts: ["host.docker.internal:host-gateway"]`. Альтернатива (два независимых compose) отклонена: дублирование провижининга расходит со временем.
+Основной `docker-compose.yml` содержит все 7 сервисов (вариант 2). Вариант 1 — `docker-compose.hostmode.yaml` с `deploy/voterpool` удалённым (`profiles: ["bundled"]` для сервиса приложения) и scrape-целью `host.docker.internal:8080` + `extra_hosts: ["host.docker.internal:host-gateway"]`. Альтернатива (два независимых compose) отклонена: дублирование провижининга расходит со временем.
 
 ### D2. Базовый образ приложения — `gcr.io/distroless/cc-debian12`
 
@@ -67,7 +67,7 @@ Prometheus: `--storage.tsdb.retention.time=15d` + `--storage.tsdb.retention.size
 
 ### D7. Сеть и периметр
 
-Единая bridge-сеть `obs`; наружу публикуются ТОЛЬКО `127.0.0.1:3000` (grafana) и порт агентов voterpool (модозависимо). Prometheus/alertmanager/loki портов наружу не имеют вовсе. Скрейп — по DNS имён сервисов внутри сети. Пароль Grafana из `.env` (`GRAFANA_ADMIN_PASSWORD`), `.env` в `.gitignore`.
+Единая bridge-сеть `obs`; наружу публикуются ТОЛЬКО `127.0.0.1:3000` (grafana) и порт агентов voterpool (зависит от варианта). Prometheus/alertmanager/loki портов наружу не имеют вовсе. Скрейп — по DNS имён сервисов внутри сети. Пароль Grafana из `.env` (`GRAFANA_ADMIN_PASSWORD`), `.env` в `.gitignore`.
 
 ## Risks / Trade-offs
 
@@ -76,7 +76,7 @@ Prometheus: `--storage.tsdb.retention.time=15d` + `--storage.tsdb.retention.size
 - [Соседство Prometheus и RocksDB на одном диске] → size-кап 5GB, панели disk io/latency в node-дашборде, алерт на заполнение диска node_exporter'ом добавлен в rules (>85%).
 - [Regex парсинга spdlog сломается при смене формата логов] → лейблы job/container независимы от формата; записи с непарсящимся уровнем попадают в Loki без label level и видны как аномалия.
 - [Grafana provisioning API меняется между мажорами] → мажор закреплён; cold-start сценарий спеки ловит регресс при bump.
-- [Анонимный /metrics случайно опубликован] → мода B публикует только порт агентов; проверка биндов входит в сценарий «Наблюдение не торчит наружу».
+- [Анонимный /metrics случайно опубликован] → вариант 2 публикует только порт агентов; проверка биндов входит в сценарий «Наблюдение не торчит наружу».
 
 ## Migration Plan
 

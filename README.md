@@ -146,6 +146,29 @@ Backup:
 ./build/voterpool checkpoint --config config/default.yaml --path /backups/snap_$(date +%s)
 ```
 
+## Observability Scaffolding (Prometheus + Grafana)
+
+A ready-made self-hosted observability stack ships in [`deploy/`](deploy/) — Docker Compose with pinned image versions, auto-provisioned Grafana dashboards and alerts from the metrics catalog.
+
+Requirements: Docker + Docker Compose v2 on a single Linux host.
+
+**Variant 2 — everything in containers (default).** Voterpool itself runs as a distroless container next to the stack:
+
+```bash
+./build.sh && docker build -f deploy/voterpool.Dockerfile -t voterpool:local .
+cd deploy && cp .env.example .env   # set GRAFANA_ADMIN_PASSWORD
+docker compose up -d
+```
+
+**Variant 1 — binary on the host** (e.g. under systemd), observability stack in Compose:
+
+```bash
+cd deploy && cp .env.example .env && \
+docker compose -f docker-compose.yml -f docker-compose.hostmode.yaml up -d
+```
+
+Both variants bring up voterpool, Prometheus (scrapes `/metrics`), Grafana (`http://127.0.0.1:3000`; the datasource and four dashboards provision themselves on startup), node_exporter, Alertmanager, Loki and Alloy. Observation ports bind to `127.0.0.1` only; secrets live in `deploy/.env` (never committed).
+
 ## Configuration
 
 Configuration is a YAML file (`config/default.yaml`), overridable by environment (`VOTERPOOL_{SECTION}_{KEY}`, e.g. `VOTERPOOL_SERVER_PORT=8081`; nested keys are flattened, e.g. `VOTERPOOL_SERVER_SSL_CERT_PATH`) and CLI flags (`--config`, `--port`, `--db-path`, `--log-level`, `--daemon`). Precedence: **CLI > environment > file**. Invalid values abort startup with exit code 1.
