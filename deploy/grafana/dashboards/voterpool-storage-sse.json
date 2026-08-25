@@ -1,0 +1,115 @@
+{
+  "uid": "voterpool-storage-sse",
+  "title": "Voterpool Storage & SSE",
+  "tags": ["voterpool"],
+  "timezone": "browser",
+  "schemaVersion": 40,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1, "type": "stat", "title": "DB healthy",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 6, "w": 4, "x": 0, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [ { "type": "value", "options": { "0": { "text": "DEGRADED", "color": "red" }, "1": { "text": "HEALTHY", "color": "green" } } } ],
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "green", "value": 1 } ] }
+        },
+        "overrides": []
+      },
+      "targets": [ { "refId": "A", "expr": "voterpool_db_healthy" } ]
+    },
+    {
+      "id": 2, "type": "stat", "title": "Pending compaction bytes",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 6, "w": 5, "x": 4, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "targets": [ { "refId": "A", "expr": "voterpool_rocksdb_estimate_pending_compaction_bytes" } ]
+    },
+    {
+      "id": 3, "type": "stat", "title": "SSE connections",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 6, "w": 4, "x": 9, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [ { "refId": "A", "expr": "voterpool_sse_connections" } ]
+    },
+    {
+      "id": 4, "type": "stat", "title": "SSE queue depth",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 6, "w": 4, "x": 13, "y": 0 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "yellow", "value": 3000 }, { "color": "red", "value": 5000 } ] } },
+        "overrides": []
+      },
+      "targets": [ { "refId": "A", "expr": "voterpool_sse_queue_depth" } ]
+    },
+    {
+      "id": 5, "type": "stat", "title": "Registered agents",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 6, "w": 3, "x": 17, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [ { "refId": "A", "expr": "voterpool_agents_total" } ]
+    },
+    {
+      "id": 6, "type": "stat", "title": "Active organizations",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 6, "w": 4, "x": 20, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [ { "refId": "A", "expr": "voterpool_orgs_active" } ]
+    },
+    {
+      "id": 7, "type": "timeseries", "title": "RocksDB block cache usage vs capacity",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "voterpool_rocksdb_block_cache_usage", "legendFormat": "usage" },
+        { "refId": "B", "expr": "voterpool_rocksdb_block_cache_capacity", "legendFormat": "capacity" }
+      ]
+    },
+    {
+      "id": 8, "type": "timeseries", "title": "Block cache hits / misses",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "fieldConfig": { "defaults": { "unit": "cps" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "rate(voterpool_rocksdb_block_cache_hits_total[5m])", "legendFormat": "hits" },
+        { "refId": "B", "expr": "rate(voterpool_rocksdb_block_cache_misses_total[5m])", "legendFormat": "misses" }
+      ]
+    },
+    {
+      "id": 9, "type": "timeseries", "title": "WAL syncs / flush & compaction IO",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 },
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "rate(voterpool_rocksdb_wal_synced_total[5m])", "legendFormat": "wal syncs" },
+        { "refId": "B", "expr": "rate(voterpool_rocksdb_flush_write_bytes_total[5m])", "legendFormat": "flush B/s" },
+        { "refId": "C", "expr": "rate(voterpool_rocksdb_compaction_read_bytes_total[5m])", "legendFormat": "compact read B/s" },
+        { "refId": "D", "expr": "rate(voterpool_rocksdb_compaction_write_bytes_total[5m])", "legendFormat": "compact write B/s" }
+      ]
+    },
+    {
+      "id": 10, "type": "timeseries", "title": "TTL scans rate and p99 duration",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 14 },
+      "fieldConfig": { "defaults": { "custom": { "axisPlacement": "auto" } }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "rate(voterpool_ttl_scans_total[5m])", "legendFormat": "scans/s" },
+        { "refId": "B", "expr": "histogram_quantile(0.99, sum(rate(voterpool_ttl_scan_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p99 s" }
+      ]
+    },
+    {
+      "id": 11, "type": "timeseries", "title": "DB write failures by kind / SSE write failures by event",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 22 },
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "sum by (kind) (increase(voterpool_db_write_failures_total[15m]))", "legendFormat": "db {{kind}}" },
+        { "refId": "B", "expr": "sum by (event_type) (increase(voterpool_sse_write_failures_total[15m]))", "legendFormat": "sse {{event_type}}" }
+      ]
+    }
+  ]
+}

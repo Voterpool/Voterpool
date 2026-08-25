@@ -1,0 +1,70 @@
+{
+  "uid": "voterpool-mcp-api",
+  "title": "Voterpool MCP API",
+  "tags": ["voterpool"],
+  "timezone": "browser",
+  "schemaVersion": 40,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1, "type": "timeseries", "title": "MCP request rate by outcome",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "sum by (outcome) (rate(voterpool_mcp_requests_total[5m]))", "legendFormat": "{{outcome}}" }
+      ]
+    },
+    {
+      "id": 2, "type": "timeseries", "title": "RPC error rate by code",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "sum by (code) (rate(voterpool_rpc_errors_total[5m]))", "legendFormat": "{{code}}" }
+      ]
+    },
+    {
+      "id": 3, "type": "timeseries", "title": "POST /mcp latency p50 / p99",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 16, "x": 0, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "histogram_quantile(0.50, sum(rate(voterpool_http_request_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p50" },
+        { "refId": "B", "expr": "histogram_quantile(0.99, sum(rate(voterpool_http_request_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p99" }
+      ]
+    },
+    {
+      "id": 4, "type": "gauge", "title": "Requests with clientInfo",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 4, "x": 16, "y": 8 },
+      "fieldConfig": {
+        "defaults": { "unit": "percentunit", "min": 0, "max": 1, "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "yellow", "value": 0.5 }, { "color": "green", "value": 0.8 } ] } },
+        "overrides": []
+      },
+      "targets": [
+        { "refId": "A", "expr": "sum(voterpool_mcp_client_meta_total{present=\"true\"}) / sum(voterpool_mcp_client_meta_total)" }
+      ]
+    },
+    {
+      "id": 5, "type": "stat", "title": "Request rate total",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 4, "x": 20, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "sum(rate(voterpool_mcp_requests_total[5m]))" }
+      ]
+    },
+    {
+      "id": 6, "type": "timeseries", "title": "Top tools by call rate (tools/call)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 },
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "topk(10, sum by (name) (rate(voterpool_mcp_requests_total{method=\"tools/call\"}[5m])))", "legendFormat": "{{name}}" }
+      ]
+    }
+  ]
+}

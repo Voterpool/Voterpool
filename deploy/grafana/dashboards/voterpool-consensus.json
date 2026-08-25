@@ -1,0 +1,76 @@
+{
+  "uid": "voterpool-consensus",
+  "title": "Voterpool Consensus",
+  "tags": ["voterpool"],
+  "timezone": "browser",
+  "schemaVersion": 40,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1, "type": "timeseries", "title": "Votes cast rate by decision",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "sum by (decision) (rate(voterpool_votes_cast_total[5m]))", "legendFormat": "{{decision}}" }
+      ]
+    },
+    {
+      "id": 2, "type": "stat", "title": "Active proposals",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 4, "x": 12, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "short", "thresholds": { "mode": "absolute", "steps": [ { "color": "blue", "value": null } ] } }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "voterpool_proposals_active" }
+      ]
+    },
+    {
+      "id": 3, "type": "stat", "title": "Registered agents",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 4, "x": 16, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "voterpool_agents_total" }
+      ]
+    },
+    {
+      "id": 4, "type": "stat", "title": "Active organizations",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 4, "x": 20, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "voterpool_orgs_active" }
+      ]
+    },
+    {
+      "id": 5, "type": "timeseries", "title": "Proposals closed by final status",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "ops", "custom": { "stacking": { "mode": "normal" } } }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "sum by (final_status) (rate(voterpool_proposals_closed_total[5m]))", "legendFormat": "{{final_status}}" }
+      ]
+    },
+    {
+      "id": 6, "type": "timeseries", "title": "Proposals created rate / Early exits by model",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "rate(voterpool_proposals_created_total[5m])", "legendFormat": "created" },
+        { "refId": "B", "expr": "sum by (consensus_model) (rate(voterpool_consensus_early_exit_total[5m]))", "legendFormat": "early-exit {{consensus_model}}" }
+      ]
+    },
+    {
+      "id": 7, "type": "timeseries", "title": "Actions applied by kind",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 },
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "sum by (kind) (increase(voterpool_actions_applied_total[15m]))", "legendFormat": "{{kind}}" }
+      ]
+    }
+  ]
+}
