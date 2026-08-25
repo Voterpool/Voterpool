@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Транспортное и протокольное ядро MCP 2026-07-28: единая точка приёма JSON-RPC 2.0 запросов агентов (POST /mcp), обязательные заголовки протокола, диспетчеризация инструментов, анонимные методы (server/discover, tools/list, register_agent, get_playbook), резервный канал авторизации через `_meta.io.voterpool/auth` и единый контракт ошибок с HTTP-маппингом (docs/05, docs/07).
+Транспортное и протокольное ядро MCP: единая точка приёма JSON-RPC 2.0 запросов агентов (POST /mcp), stateless-ядро без сессий, опциональные заголовки протокола с валидацией при наличии, переговоры версий и handshake initialize/notifications для стандартных клиентов (streamable HTTP), диспетчеризация инструментов, анонимные методы (server/discover, tools/list, register_agent, get_playbook), резервный канал авторизации через `_meta.io.voterpool/auth` и единый контракт ошибок с HTTP-маппингом (docs/05, docs/07).
 
 Область действия: редакция **On-Premises (Self-Hosted)**. Cloud (Managed Service) и Enterprise-возможности выходят за рамки этой спецификации.
 
@@ -17,53 +17,96 @@
 - **WHEN** агент отправляет валидный JSON-RPC 2.0 запрос tools/call с корректными аргументами
 - **THEN** сервер отвечает HTTP 200 и телом `result.content[0]` с `type: "text"` и JSON-строкой результата в поле `text`
 
-### Requirement: Обязательные заголовки протокола MCP 2026-07-28
+### Requirement: Опциональные заголовки протокола MCP (валидация при наличии)
 
-Каждый POST /mcp ДОЛЖЕН содержать заголовок `MCP-Protocol-Version: 2026-07-28`. Заголовок `Mcp-Method` ДОЛЖЕН присутствовать и ДОЛЖЕН совпадать с фактическим JSON-RPC method тела запроса. Заголовок `Mcp-Name` ДОЛЖЕН присутствовать только для вызовов инструментов (method = tools/call или direct-mode имя инструмента) и ДОЛЖЕН совпадать с именем инструмента; для server/discover, tools/list и прочих методов без имени инструмента заголовок Mcp-Name НЕ ОБЯЗАТЕЛЕН. Когда тело несёт `_meta["io.modelcontextprotocol/protocolVersion"]`, сервер ОБЯЗАН сверить его с заголовком MCP-Protocol-Version; при отсутствии заголовка значение берётся из `_meta`, при противоречии — запрос отклоняется. Запрос с неподдерживаемой версией ДОЛЖЕН отклоняться ошибкой, `data` которой содержит `supportedVersions` — список поддерживаемых версий (семантика UnsupportedProtocolVersionError). Протокол ДОЛЖЕН быть stateless: без initialize/initialized и без Mcp-Session-Id; каждый запрос самодостаточен.
+Заголовки `MCP-Protocol-Version`, `Mcp-Method` и `Mcp-Name` ЯВЛЯЮТСЯ ОПЦИОНАЛЬНЫМИ для каждого POST /mcp: их отсутствие НЕ ДОЛЖНО приводить к ошибке. Когда заголовки присутствуют, сервер ОБЯЗАН проверить их согласованность с телом запроса: `Mcp-Method` ОБЯЗАН совпадать с полем method тела JSON-RPC запроса (для режима A это "tools/call", для режима B — имя тулзы, для discovery — "server/discover"/"tools/list"); `Mcp-Name` при наличии ОБЯЗАН совпадать с именем вызываемого инструмента (params.name для режима A, method для режима B); несоответствие — ошибка -32600 Invalid Request. Когда заголовки отсутствуют, значения для логов, метрик и маршрутизации ДОЛЖНЫ выводиться из разобранного тела запроса. Сервер НЕ ДОЛЖЕН требовать заголовков для обработки handshake (initialize, notifications/initialized), server/discover, tools/list или вызовов инструментов. Протокол ОСТАЁТСЯ stateless: без обязательных сессий и без Mcp-Session-Id; каждый запрос самодостаточен.
 
-#### Scenario: Discover без Mcp-Name проходит
+#### Scenario: Вызов инструмента без единого кастомного заголовка
 
-- **WHEN** POST /mcp содержит `{"jsonrpc":"2.0","id":0,"method":"server/discover"}` с заголовками MCP-Protocol-Version и Mcp-Method: server/discover, но без Mcp-Name
-- **THEN** сервер обрабатывает запрос как анонимный discovery-вызов и возвращает структурный результат discovery
+- **WHEN** клиент отправляет POST /mcp `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"register_agent","arguments":{"name":"Agent Smith"}}}` без заголовков MCP-Protocol-Version, Mcp-Method и Mcp-Name
+- **THEN** сервер обрабатывает вызов как анонимный register_agent и возвращает обычный result
 
 #### Scenario: Несовпадение Mcp-Method с методом тела
 
 - **WHEN** тело содержит method "tools/list", а заголовок Mcp-Method равен "tools/call"
 - **THEN** сервер возвращает ошибку -32600 Invalid Request
 
+#### Scenario: Отсутствие Mcp-Method не является ошибкой
+
+- **WHEN** POST /mcp с корректным телом server/discover отправлен вообще без заголовков MCP
+- **THEN** сервер обрабатывает запрос штатно, а в метриках и логах method/name выведены из тела
+
+### Requirement: Согласование версий запроса
+
+Версия протокола запроса определяется по приоритету: заголовок MCP-Protocol-Version; при его отсутствии — `params.protocolVersion` тела (поле переговоров initialize); при его отсутствии — `_meta["io.modelcontextprotocol/protocolVersion"]`. При наличии нескольких источников и их расхождении запрос ДОЛЖЕН отклоняться ошибкой -32600, чья data содержит supportedVersions. Версия, отсутствующая во всех источниках, НЕ ДОЛЖНА отклоняться. Запрос с версией вне списка поддерживаемых ДОЛЖЕН отклоняться ошибкой -32600 с data.supportedVersions — полным списком поддерживаемых версий сервера. Ответы server/discover и initialize ДОЛЖНЫ содержать информацию о поддерживаемых версиях.
+
 #### Scenario: Противоречие версии заголовка и _meta
 
 - **WHEN** заголовок MCP-Protocol-Version равен "2025-11-25", а `_meta["io.modelcontextprotocol/protocolVersion"]` в теле равен "2026-07-28"
 - **THEN** сервер возвращает ошибку -32600, чья data перечисляет supportedVersions сервера
 
-#### Scenario: Версия только из _meta
+#### Scenario: Версия из params.protocolVersion без заголовка
 
-- **WHEN** POST /mcp отправлен без заголовка MCP-Protocol-Version, но с `_meta["io.modelcontextprotocol/protocolVersion"]: "2026-07-28"`
-- **THEN** сервер использует версию из _meta и обрабатывает запрос штатно
+- **WHEN** POST /mcp отправлен без заголовка MCP-Protocol-Version с телом `{"method":"initialize","params":{"protocolVersion":"2025-06-18"}}`
+- **THEN** сервер использует версию из params.protocolVersion и обрабатывает запрос штатно
+
+#### Scenario: Запрос без версии обрабатывается
+
+- **WHEN** POST /mcp с валидным телом server/discover не содержит версию ни в заголовке, ни в params.protocolVersion, ни в _meta
+- **THEN** сервер обрабатывает запрос без ошибки -32600
 
 #### Scenario: Неподдерживаемая версия
 
 - **WHEN** запрос содержит версию протокола, которую сервер не поддерживает
-- **THEN** сервер возвращает ошибку с data.supportedVersions: ["2026-07-28"]
-
-#### Scenario: Неизвестная версия протокола
-
-- **WHEN** запрос содержит версию протокола (в заголовке и/или `_meta`), отличную от поддерживаемой
-- **THEN** сервер возвращает ошибку -32600 Invalid Request с data.supportedVersions
-
-#### Scenario: Отсутствуют обязательные заголовки
-
-- **WHEN** POST /mcp с вызовом инструмента отправлен без одного из заголовков MCP-Protocol-Version, Mcp-Method, Mcp-Name
-- **THEN** сервер возвращает ошибку -32600 Invalid Request
-
-### Requirement: Согласование версий заголовок-мета
-
-Сервер ДОЛЖЕН принимать версию протокола из заголовка MCP-Protocol-Version либо, при его отсутствии, из `_meta["io.modelcontextprotocol/protocolVersion"]` тела. При наличии обоих источников и их расхождении сервер ОБЯЗАН отклонить запрос ошибкой Invalid Request (-32600), включающей data.supportedVersions. Ответы server/discover ДОЛЖНЫ содержать полный список поддерживаемых версий для повторной попытки клиента с взаимно поддерживаемой версией.
+- **THEN** сервер возвращает ошибку -32600 с data.supportedVersions: ["2026-07-28", "2025-06-18", "2025-03-26"]
 
 #### Scenario: Повторная попытка после mismatch
 
 - **WHEN** клиент получил ошибку с data.supportedVersions и повторил запрос с версией "2026-07-28"
 - **THEN** сервер обрабатывает повторный запрос штатно
+
+### Requirement: Handshake initialize/initialized для стандартных клиентов
+
+Метод initialize ДОЛЖЕН обрабатываться анонимно (без Authorization и `_meta`-токена) и возвращать стандартную форму результата: `{protocolVersion, capabilities, serverInfo}`, где protocolVersion равен версии, согласованной по правилам переговоров, capabilities содержит объект tools, serverInfo содержит name "voterpool" и версию бинарника. Согласование версии: если запрошенная клиентом версия входит в список поддерживаемых, сервер ОБЯЗАН вернуть её же (эхо); иначе — старшую поддерживаемую версию. Ответ initialize НЕ ДОЛЖЕН содержать Mcp-Session-Id: сервер остаётся stateless. Уведомления (JSON-RPC запросы без поля id, включая notifications/initialized) ДОЛЖНЫ отвечать HTTP 202 с пустым телом и НЕ ДОЛЖНЫ получать JSON-RPC ответ или ошибку.
+
+#### Scenario: Полный handshake стандартного клиента
+
+- **WHEN** клиент последовательно отправляет initialize с protocolVersion "2025-06-18", затем notification initialized, затем tools/list — все без кастомных заголовков
+- **THEN** initialize отвечает result с protocolVersion "2025-06-18", capabilities.tools и serverInfo.name "voterpool"; notification получает HTTP 202 без тела; tools/list возвращает каталог инструментов
+
+#### Scenario: Эхо поддержанной версии
+
+- **WHEN** initialize приходит с params.protocolVersion "2026-07-28"
+- **THEN** result.protocolVersion равен "2026-07-28"
+
+#### Scenario: Fallback на неизвестной версии
+
+- **WHEN** initialize приходит с params.protocolVersion, отсутствующей в supportedVersions
+- **THEN** result.protocolVersion равен "2026-07-28"
+
+#### Scenario: Анонимность initialize
+
+- **WHEN** initialize отправлен без Authorization и без `_meta`-токена
+- **THEN** handshake проходит без -32001
+
+#### Scenario: Любое уведомление получает 202
+
+- **WHEN** POST /mcp содержит JSON-RPC тело без поля id (например, notifications/cancelled)
+- **THEN** сервер отвечает HTTP 202 с пустым телом
+
+### Requirement: Методы HTTP эндпоинта /mcp
+
+Эндпоинт /mcp ДОЛЖЕН принимать только POST. Запросы GET и DELETE к /mcp ДОЛЖНЫ отвечать HTTP 405 Method Not Allowed без разбора тела. SSE-канал доменных событий остаётся на отдельном эндпоинте GET /mcp/events.
+
+#### Scenario: GET /mcp отвечает 405
+
+- **WHEN** клиент запрашивает GET /mcp с Accept: text/event-stream
+- **THEN** сервер отвечает HTTP 405 и клиентская сторона может продолжить работу в standalone-режиме
+
+#### Scenario: DELETE /mcp отвечает 405
+
+- **WHEN** клиент отправляет DELETE /mcp для завершения сессии
+- **THEN** сервер отвечает HTTP 405; состояние сервера не меняется
 
 ### Requirement: Диспетчеризация инструментов (два режима)
 

@@ -30,7 +30,7 @@
 
 #### Scenario: Версия из params.protocolVersion без заголовка
 
-- **WHEN** POST /mcp отправлен без заголова MCP-Protocol-Version с телом `{"method":"initialize","params":{"protocolVersion":"2025-06-18"}}`
+- **WHEN** POST /mcp отправлен без заголовка MCP-Protocol-Version с телом `{"method":"initialize","params":{"protocolVersion":"2025-06-18"}}`
 - **THEN** сервер использует версию из params.protocolVersion и обрабатывает запрос штатно
 
 #### Scenario: Запрос без версии обрабатывается
