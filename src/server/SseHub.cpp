@@ -13,7 +13,7 @@ void SseHub::registerStreams(const std::vector<std::string>& orgIds, const std::
     auto holder = std::make_shared<drogon::ResponseStreamPtr>(std::move(stream));
     std::lock_guard lock(mutex_);
     uint64_t id = nextId_++;
-    allConnections_.emplace_back(id, holder);
+    allConnections_.emplace_back(id, Conn{holder, "events", std::chrono::steady_clock::now()});
     for (const auto& org : orgIds) {
         Subscriber s;
         s.holder = holder;
@@ -28,7 +28,7 @@ void SseHub::registerStreams(const std::vector<std::string>& orgIds, const std::
 void SseHub::registerKeepAlive(drogon::ResponseStreamPtr stream) {
     auto holder = std::make_shared<drogon::ResponseStreamPtr>(std::move(stream));
     std::lock_guard lock(mutex_);
-    allConnections_.emplace_back(nextId_++, std::move(holder));
+    allConnections_.emplace_back(nextId_++, Conn{std::move(holder), "keepalive", std::chrono::steady_clock::now()});
     MetricsRegistry::instance().setGauge("voterpool_sse_connections", {},
                                          static_cast<std::int64_t>(connectionCount()));
 }
@@ -49,8 +49,14 @@ void SseHub::pruneLocked() {
     std::vector<StreamHolder> dead;
     allConnections_.erase(
         std::remove_if(allConnections_.begin(), allConnections_.end(),
-                       [](const std::pair<uint64_t, StreamHolder>& c) {
-                           return !c.second || !*c.second;
+                       [](const std::pair<uint64_t, Conn>& c) {
+                           if (c.second.holder && *c.second.holder) return false;
+                           // Диагностика: кто и когда закрыл соединение.
+                           const auto ageSec = std::chrono::duration_cast<std::chrono::seconds>(
+                                                   std::chrono::steady_clock::now() - c.second.opened)
+                                                   .count();
+                           spdlog::info("SSE {} stream closed by peer after {}s", c.second.kind, ageSec);
+                           return true;
                        }),
         allConnections_.end());
     for (auto it = byOrg_.begin(); it != byOrg_.end();) {
@@ -103,15 +109,21 @@ std::vector<SseEvent> SseHub::eventsForTests() const {
 }
 
 void SseHub::heartbeat() {
-    std::vector<StreamHolder> all;
+    std::vector<Conn> all;
     {
         std::lock_guard lock(mutex_);
         pruneLocked();
-        for (auto& [id, h] : allConnections_) all.push_back(h);
+        for (auto& [id, c] : allConnections_) all.push_back(c);
     }
     size_t failures = 0;
-    for (const auto& h : all) {
-        if (!sendRaw(h, ": keep-alive\n\n")) ++failures;
+    for (const auto& c : all) {
+        if (!sendRaw(c.holder, ": keep-alive\n\n")) {
+            ++failures;
+            const auto ageSec = std::chrono::duration_cast<std::chrono::seconds>(
+                                    std::chrono::steady_clock::now() - c.opened)
+                                    .count();
+            spdlog::warn("SSE heartbeat write failed (kind {}, age {}s)", c.kind, ageSec);
+        }
     }
     if (failures > 0) {
         MetricsRegistry::instance().incCounter("voterpool_sse_write_failures_total", {{"event_type", "keep-alive"}},
@@ -121,10 +133,10 @@ void SseHub::heartbeat() {
 
 void SseHub::shutdownAll() {
     std::lock_guard lock(mutex_);
-    for (auto& [id, holder] : allConnections_) {
-        if (holder && *holder) {
-            (*holder)->send("event: server_shutdown\ndata: {}\n\n");
-            (*holder)->close();
+    for (auto& [id, c] : allConnections_) {
+        if (c.holder && *c.holder) {
+            (*c.holder)->send("event: server_shutdown\ndata: {}\n\n");
+            (*c.holder)->close();
         }
     }
     byOrg_.clear();

@@ -36,3 +36,44 @@
 
 - **WHEN** клиент отправляет DELETE /mcp для завершения сессии
 - **THEN** сервер отвечает HTTP 405; состояние сервера не меняется
+
+## MODIFIED Requirements
+
+### Requirement: Handshake initialize/initialized для стандартных клиентов
+
+Метод initialize ДОЛЖЕН обрабатываться анонимно (без Authorization и `_meta`-токена) и возвращать стандартную форму результата: `{protocolVersion, capabilities, serverInfo}`, где protocolVersion равен версии, согласованной по правилам переговоров, capabilities содержит объект tools, serverInfo содержит name "voterpool" и версию бинарника. Согласование версии: если запрошенная клиентом версия входит в список поддерживаемых, сервер ОБЯЗАН вернуть её же (эхо); иначе — ближайшую МЛАДШУЮ поддерживаемую версию: клиент понимает версии не новее своей запрошенной, а ответ незнакомой версией вызывает обязательный по спецификации дисконнект клиента; если запрошенная старше всех поддерживаемых — самую старую поддерживаемую. Ответ initialize НЕ ДОЛЖЕН содержать Mcp-Session-Id: сервер остаётся stateless. Уведомления (JSON-RPC запросы без поля id, включая notifications/initialized) ДОЛЖНЫ отвечать HTTP 202 с пустым телем и НЕ ДОЛЖНЫ получать JSON-RPC ответ или ошибку.
+
+#### Scenario: Полный handshake стандартного клиента
+
+- **WHEN** клиент последовательно отправляет initialize с protocolVersion "2025-06-18", затем notification initialized, затем tools/list — все без кастомных заголовков
+- **THEN** initialize отвечает result с protocolVersion "2025-06-18", capabilities.tools и serverInfo.name "voterpool"; notification получает HTTP 202 без тела; tools/list возвращает каталог инструментов
+
+#### Scenario: Эхо поддержанной версии
+
+- **WHEN** initialize приходит с params.protocolVersion "2026-07-28"
+- **THEN** result.protocolVersion равен "2026-07-28"
+
+#### Scenario: Эхо промежуточной поддержанной версии
+
+- **WHEN** initialize приходит с params.protocolVersion "2025-11-25" (реальный профиль opencode)
+- **THEN** result.protocolVersion равен "2025-11-25"
+
+#### Scenario: Fallback на неизвестной версии
+
+- **WHEN** initialize приходит с params.protocolVersion, отсутствующей в supportedVersions (например "1999-01-01")
+- **THEN** result.protocolVersion равен ближайшей младшей поддерживаемой ("2025-03-26")
+
+#### Scenario: Запрос между поддержанными версиями
+
+- **WHEN** initialize приходит с params.protocolVersion "2025-09-01"
+- **THEN** result.protocolVersion равен ближайшей младшей поддерживаемой ("2025-06-18")
+
+#### Scenario: Анонимность initialize
+
+- **WHEN** initialize отправлен без Authorization и без `_meta`-токена
+- **THEN** handshake проходит без -32001
+
+#### Scenario: Любое уведомление получает 202
+
+- **WHEN** POST /mcp содержит JSON-RPC тело без поля id (например, notifications/cancelled)
+- **THEN** сервер отвечает HTTP 202 с пустым телом

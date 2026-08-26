@@ -224,7 +224,7 @@ TEST(Config, ClusterModeDefaultsToStandaloneAndRejectsUnknown) {
 TEST(Config, McpSupportedVersionsDefault) {
     AppConfig c;
     EXPECT_EQ(c.mcp.supported_versions,
-              (std::vector<std::string>{"2026-07-28", "2025-06-18", "2025-03-26"}));
+              (std::vector<std::string>{"2026-07-28", "2025-11-25", "2025-06-18", "2025-03-26"}));
     EXPECT_NO_THROW(c.validate());
 }
 

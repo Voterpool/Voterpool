@@ -10,6 +10,8 @@
 #include <drogon/HttpResponse.h>
 #include <simdjson.h>
 
+#include <algorithm>
+
 namespace voterpool::mcp {
 namespace {
 
@@ -217,11 +219,27 @@ Json::Value initializeResponse(AppContext& app, const Json::Value& params) {
         params["protocolVersion"].isString())
         requested = params["protocolVersion"].asString();
     const auto& supported = app.config.mcp.supported_versions;
+    // Переговоры: запрошенная версия возвращается эхом. Неизвестная НЕ
+    // заменяется каноничной (новой для клиента — по спецификации клиент
+    // обязан отключиться при незнакомой версии ответа), а ближайшей МЛАДШЕЙ
+    // поддерживаемой, которую клиент гарантированно понимает. Формат версий
+    // YYYY-MM-DD сравнивается лексикографически как хронологически.
+    std::string negotiated;
     const bool known =
         !requested.empty() &&
         std::find(supported.begin(), supported.end(), requested) != supported.end();
-
-        const std::string negotiated = known ? requested : app.config.mcp.protocol_version;
+    if (known) {
+        negotiated = requested;
+    } else {
+        std::string bestBelow;
+        for (const auto& v : supported)
+            if (!requested.empty() && v < requested &&
+                (bestBelow.empty() || v > bestBelow))
+                bestBelow = v;
+        negotiated = !bestBelow.empty()
+                         ? bestBelow
+                         : *std::min_element(supported.begin(), supported.end());
+    }
 
     Json::Value out;
     out["protocolVersion"] = negotiated;
@@ -294,6 +312,10 @@ void handleMcpPost(AppContext& app, const drogon::HttpRequestPtr& req,
 
     Json::Value root;
     try {
+        // Диагностика подключения: транспортные атрибуты каждого POST /mcp.
+        spdlog::info("POST /mcp enter ua=\"{}\" accept=\"{}\" bytes={}",
+                     req->getHeader("User-Agent").empty() ? "-" : req->getHeader("User-Agent"),
+                     req->getHeader("Accept").empty() ? "-" : req->getHeader("Accept"), body.size());
         simdjson::padded_string padded(body);
         simdjson::ondemand::parser parser;
         auto doc = parser.iterate(padded);

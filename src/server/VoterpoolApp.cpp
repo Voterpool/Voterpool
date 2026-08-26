@@ -70,8 +70,8 @@ void VoterpoolApp::registerRoutes() {
             }
             MetricsRegistry::instance().incCounter("voterpool_mcp_get_streams_total",
                                                    {{"outcome", "opened"}});
-            spdlog::info("GET /mcp keep-alive stream opened (agent {})",
-                         agent ? agent->agent_id : "-");
+            spdlog::info("GET /mcp keep-alive stream opened (agent {}, ua \"{}\")", agent ? agent->agent_id : "-",
+                         req->getHeader("User-Agent").empty() ? "-" : req->getHeader("User-Agent"));
             auto resp = drogon::HttpResponse::newAsyncStreamResponse(
                 [this](drogon::ResponseStreamPtr stream) {
                     stream->send(": connected\n\n");

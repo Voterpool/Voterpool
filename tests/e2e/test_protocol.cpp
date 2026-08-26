@@ -432,7 +432,7 @@ TEST(E2eProtocol, StandardClientHandshakeWithoutCustomHeaders) {
 }
 
 TEST(E2eProtocol, VersionNegotiationMatrix) {
-    // Эхо каноничной версии.
+    // Эхо каноничной версии и любой поддержанной.
     auto initialize = [](const char* version) {
         return parseJson(
             mcpPost(rpcBody("initialize",
@@ -449,10 +449,22 @@ TEST(E2eProtocol, VersionNegotiationMatrix) {
     ASSERT_FALSE(isError(echoCanonical));
     EXPECT_EQ(echoCanonical["result"]["protocolVersion"].asString(), "2026-07-28");
 
-    // Fallback для неизвестной версии — без отказа соединения с клиентом.
+    // Эхо промежуточной поддержанной версии (реальный профиль opencode).
+    Json::Value echoNov = initialize("2025-11-25");
+    ASSERT_FALSE(isError(echoNov));
+    EXPECT_EQ(echoNov["result"]["protocolVersion"].asString(), "2025-11-25");
+
+    // Неизвестная версия → ближайшая МЛАДШАЯ поддержанная (клиент понимает
+    // всё, что старше его запроса; незнакомая новая версия вызвала бы
+    // обязательный по спецификации дисконнект клиента).
     Json::Value fallback = initialize("1999-01-01");
     ASSERT_FALSE(isError(fallback)) << fallback.toStyledString();
-    EXPECT_EQ(fallback["result"]["protocolVersion"].asString(), "2026-07-28");
+    EXPECT_EQ(fallback["result"]["protocolVersion"].asString(), "2025-03-26");
+
+    // Запрос между поддержанными версиями → ближайшая младшая.
+    Json::Value between = initialize("2025-09-01");
+    ASSERT_FALSE(isError(between));
+    EXPECT_EQ(between["result"]["protocolVersion"].asString(), "2025-06-18");
 
     // Не-initialize запрос с неизвестной версией отклоняется со списком.
     Json::Value out = parseJson(
@@ -460,13 +472,15 @@ TEST(E2eProtocol, VersionNegotiationMatrix) {
                 {{"MCP-Protocol-Version", "2000-01-01"}}).body);
     ASSERT_TRUE(isError(out));
     EXPECT_EQ(errCode(out), -32600);
-    bool sawAll[] = {false, false, false};
+    bool sawAll[] = {false, false, false, false};
     for (const auto& v : out["error"]["data"]["supportedVersions"]) {
-        if (v.asString() == "2026-07-28") sawAll[0] = true;
-        if (v.asString() == "2025-06-18") sawAll[1] = true;
-        if (v.asString() == "2025-03-26") sawAll[2] = true;
+        const std::string s = v.asString();
+        if (s == "2026-07-28") sawAll[0] = true;
+        if (s == "2025-11-25") sawAll[1] = true;
+        if (s == "2025-06-18") sawAll[2] = true;
+        if (s == "2025-03-26") sawAll[3] = true;
     }
-    EXPECT_TRUE(sawAll[0] && sawAll[1] && sawAll[2]) << out.toStyledString();
+    EXPECT_TRUE(sawAll[0] && sawAll[1] && sawAll[2] && sawAll[3]) << out.toStyledString();
 
     // Расхождение заголовка и params.protocolVersion → -32600.
     Json::Value conflicting = rpcBody("initialize",
