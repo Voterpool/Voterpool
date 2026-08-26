@@ -132,6 +132,7 @@ public:
         subs_.push_back({orgIds, agentId});
         ++connections_;
     }
+    void registerKeepAlive(drogon::ResponseStreamPtr) override { ++connections_; }
     void deliver(const SseEvent& ev) override { delivered_.push_back(ev.org_id + ":" + ev.event_type); }
     void heartbeat() override {}
     void shutdownAll() override { connections_ = 0; }

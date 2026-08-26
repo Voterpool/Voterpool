@@ -25,6 +25,14 @@ void SseHub::registerStreams(const std::vector<std::string>& orgIds, const std::
                                          static_cast<std::int64_t>(connectionCount()));
 }
 
+void SseHub::registerKeepAlive(drogon::ResponseStreamPtr stream) {
+    auto holder = std::make_shared<drogon::ResponseStreamPtr>(std::move(stream));
+    std::lock_guard lock(mutex_);
+    allConnections_.emplace_back(nextId_++, std::move(holder));
+    MetricsRegistry::instance().setGauge("voterpool_sse_connections", {},
+                                         static_cast<std::int64_t>(connectionCount()));
+}
+
 bool SseHub::sendRaw(const StreamHolder& holder, const std::string& raw) {
     if (!holder || !*holder) return false;
     bool ok = (*holder)->send(raw);

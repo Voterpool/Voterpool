@@ -1,4 +1,5 @@
 #include "tests/common/HttpUtil.h"
+#include "tests/common/SseClient.h"
 #include "tests/e2e/E2eEnv.h"
 
 #include <gtest/gtest.h>
@@ -485,14 +486,48 @@ TEST(E2eProtocol, VersionNegotiationMatrix) {
 }
 
 TEST(E2eProtocol, HttpMethodsOnMcpEndpoint) {
-    // GET /mcp → 405 + Allow: POST; SSE-канал возврата отсутствует.
+    // GET /mcp открывает keepalive SSE-поток: старые клиенты ревизий 2025-*
+    // считают не-200 фатальной ошибкой транспорта.
     HttpResponse get = HttpUtil::get(E2eEnv::instance().host(), E2eEnv::instance().port(), "/mcp",
                                      {{"Accept", "text/event-stream"}});
-    EXPECT_EQ(get.status, 405);
-    EXPECT_NE(get.headers.count("allow") + get.headers.count("Allow"), 0u);
+    EXPECT_EQ(get.status, 200);
+    EXPECT_NE(get.headers["content-type"].find("text/event-stream"), std::string::npos)
+        << get.headers.count("content-type");
 
     // DELETE /mcp → 405; сервер stateless, завершать нечего.
     HttpResponse del = HttpUtil::request(E2eEnv::instance().host(), E2eEnv::instance().port(),
                                          "DELETE", "/mcp", {}, "");
     EXPECT_EQ(del.status, 405);
+}
+
+TEST(E2eProtocol, GetMcpKeepaliveStreamBehavior) {
+    const auto& env = E2eEnv::instance();
+
+    // Анонимный поток: живой, только комментарии, без JSON-RPC сообщений.
+    {
+        SseClient anon(env.host(), env.port(), "", 5000, "/mcp");
+        ASSERT_TRUE(anon.connected());
+        const std::string head = anon.responseHead();
+        EXPECT_NE(head.find("200"), std::string::npos) << head;
+        EXPECT_NE(head.find("content-type: text/event-stream"), std::string::npos) << head;
+        // Heartbeat из общего хаба (интервал 1s в e2e-конфиге).
+        EXPECT_TRUE(anon.sawKeepAliveWithin(5000)) << "expected : keep-alive frame";
+        // Ни одного события с data за несколько кадров — поток молчит.
+        for (int i = 0; i < 3; ++i) {
+            auto ev = anon.nextEvent(1500);
+            if (ev.has_value()) {
+                EXPECT_EQ(ev->event, "__keepalive__") << "keepalive-поток не должен нести события";
+                EXPECT_TRUE(ev->data.empty());
+            }
+        }
+    }
+
+    // Невалидный токен не рвёт поток (канал без данных — анонимный режим).
+    {
+        SseClient badToken(env.host(), env.port(), "voterpool_sec_invalid_token", 5000, "/mcp");
+        ASSERT_TRUE(badToken.connected());
+        const std::string head = badToken.responseHead();
+        EXPECT_NE(head.find("200"), std::string::npos) << head;
+        EXPECT_TRUE(badToken.sawKeepAliveWithin(5000));
+    }
 }

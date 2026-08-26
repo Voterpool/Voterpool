@@ -1,5 +1,6 @@
 #include "server/VoterpoolApp.h"
 
+#include "core/Metrics.h"
 #include "mcp/McpHandler.h"
 #include "storage/SchemaVersion.h"
 
@@ -55,7 +56,39 @@ void VoterpoolApp::registerRoutes() {
         resp->addHeader("Allow", "POST");
         callback(resp);
     };
-    drogon::app().registerHandler("/mcp", methodNotAllowed, {drogon::Get});
+    // GET /mcp — standalone keepalive-поток для клиентов ревизий 2025-*:
+    // после handshake они открывают GET и считают не-200 фатальной ошибкой.
+    // Поток данных не несёт (только heartbeat из SseHub), анонимен;
+    // невалидный токен middleware не отклоняет (см. AuthMiddleware).
+    drogon::app().registerHandler(
+        "/mcp",
+        [this](const drogon::HttpRequestPtr& req,
+               std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
+            const AgentContext* agent = nullptr;
+            if (req->attributes()->find("agent_context")) {
+                agent = &(req->attributes()->get<AgentContext>("agent_context"));
+            }
+            MetricsRegistry::instance().incCounter("voterpool_mcp_get_streams_total",
+                                                   {{"outcome", "opened"}});
+            spdlog::info("GET /mcp keep-alive stream opened (agent {})",
+                         agent ? agent->agent_id : "-");
+            auto resp = drogon::HttpResponse::newAsyncStreamResponse(
+                [this](drogon::ResponseStreamPtr stream) {
+                    stream->send(": connected\n\n");
+                    ctx_.events->registerKeepAlive(std::move(stream));
+                },
+                true);
+            resp->setStatusCode(drogon::k200OK);
+            resp->setContentTypeString("text/event-stream");
+            resp->addHeader("Cache-Control", "no-cache");
+            resp->addHeader("Connection", "keep-alive");
+            resp->addHeader("X-Accel-Buffering", "no");
+            callback(resp);
+        },
+        {drogon::Get});
+
+    // DELETE /mcp остаётся 405: сервер stateless, завершать нечего; SDK-клиенты
+    // толерантны к 405 на terminateSession.
     drogon::app().registerHandler("/mcp", methodNotAllowed, {drogon::Delete});
 
     drogon::app().registerHandler(

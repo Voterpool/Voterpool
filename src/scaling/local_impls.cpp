@@ -88,6 +88,10 @@ void LocalEventBus::subscribeAllOrgs(const std::vector<std::string>& orgIds,
     hub_.registerStreams(orgIds, agentId, std::move(stream));
 }
 
+void LocalEventBus::registerKeepAlive(drogon::ResponseStreamPtr stream) {
+    hub_.registerKeepAlive(std::move(stream));
+}
+
 void LocalEventBus::deliver(const SseEvent& event) {
     hub_.deliver(event);
 }

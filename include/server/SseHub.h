@@ -25,6 +25,8 @@ public:
     void registerStreams(const std::vector<std::string>& orgIds, const std::string& agentId,
                          drogon::ResponseStreamPtr stream);
 
+    void registerKeepAlive(drogon::ResponseStreamPtr stream);
+
     void deliver(const SseEvent& event);
     // Тестовый доступ к истории доставки (прецедент dispatchToolForTests).
     std::vector<SseEvent> eventsForTests() const;

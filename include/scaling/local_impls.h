@@ -66,6 +66,7 @@ public:
 
     void subscribeAllOrgs(const std::vector<std::string>& orgIds, const std::string& agentId,
                           drogon::ResponseStreamPtr stream) override;
+    void registerKeepAlive(drogon::ResponseStreamPtr stream) override;
     void deliver(const SseEvent& event) override;
     void heartbeat() override;
     void shutdownAll() override;

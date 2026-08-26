@@ -22,6 +22,9 @@ public:
                                   const std::string& agentId,
                                   drogon::ResponseStreamPtr stream) = 0;
 
+    // Keepalive-поток без подписок (GET /mcp): heartbeat и lifecycle общие.
+    virtual void registerKeepAlive(drogon::ResponseStreamPtr stream) = 0;
+
     virtual void deliver(const SseEvent& event) = 0;
     virtual void heartbeat() = 0;
     virtual void shutdownAll() = 0;
