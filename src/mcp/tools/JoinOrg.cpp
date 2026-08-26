@@ -6,7 +6,9 @@ ToolDef defJoinOrganization() {
     return ToolDef{
         "join_organization",
         "Join an organization: instant ACTIVE membership for OPEN orgs, PENDING request for CLOSED ones",
-        [] { return schemaObject({{"org_id", schemaString()}}, {"org_id"}); },
+        [] { return schemaObject({{"org_id", schemaString(
+            "UUID of the organization to join; OPEN joins instantly ACTIVE, CLOSED creates a PENDING request")}},
+            {"org_id"}); },
         [](ToolContext& tc, const Json::Value& args) -> Result<Json::Value> {
             auto orgId = argUuid(args, "org_id");
             if (!orgId.ok()) return orgId.error();
@@ -35,11 +37,6 @@ ToolDef defJoinOrganization() {
             double power =
                 orgOpt->config.power_distribution == PowerDistribution::EQUAL ? 1.0 : 0.0;
 
-            // Org-лок сериализует чтение организации, проверку лимитов,
-            // инкремент счётчика и обновление total_voting_power с
-            // конкурентными мутациями организации (design D5).
-            // PENDING-ветка ниже остаётся без лока: пишет независимые
-            // ключи, повтор идемпотентен.
             auto orgLock = tc.app.orgLocks.acquire(orgId.value());
             orgOpt = tc.app.orgs->get(orgId.value());
             if (!orgOpt || orgOpt->status == OrgStatus::DISSOLVED)

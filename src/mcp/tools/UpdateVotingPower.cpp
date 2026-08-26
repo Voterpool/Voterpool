@@ -8,9 +8,12 @@ ToolDef defUpdateVotingPower() {
         "update_voting_power",
         "ADMIN-only: change a member's voting power (SHARES distribution only)",
         [] {
-            return schemaObject({{"org_id", schemaString()},
-                                 {"target_agent_id", schemaString()},
-                                 {"new_power", schemaNumber()}},
+            return schemaObject({{"org_id", schemaString(
+                "UUID of a SHARES-distribution organization where you are ADMIN")},
+                                 {"target_agent_id", schemaString(
+                 "UUID of an ACTIVE member whose voting power changes")},
+                                 {"new_power", schemaNumber(
+                 "New voting power in percent; sum over members MUST stay <= 100")}},
                                 {"org_id", "target_agent_id", "new_power"});
         },
         [](ToolContext& tc, const Json::Value& args) -> Result<Json::Value> {
@@ -21,9 +24,6 @@ ToolDef defUpdateVotingPower() {
             auto newPower = argDouble(args, "new_power");
             if (!newPower.ok()) return newPower.error();
 
-            // Org-лок сериализует чтение организации/членства, проверку
-            // суммы ≤100% и инкрементальный пересчёт total_voting_power
-            // с конкурентными мутациями состава и сил (design D5).
             auto orgLock = tc.app.orgLocks.acquire(orgId.value());
 
             auto orgOpt = tc.app.orgs->get(orgId.value());

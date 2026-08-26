@@ -1,5 +1,7 @@
 #include "mcp/tools/ToolHelpers.h"
 
+#include <algorithm>
+
 namespace voterpool::mcp {
 namespace {
 
@@ -15,21 +17,63 @@ Json::Value configBrief(const OrgConfig& c) {
 ToolDef defCreateProposal() {
     return ToolDef{
         "create_proposal",
-        "Create a proposal (STANDARD, or ACTION with kind APPROVE_MEMBER | UPDATE_ORG_INFO); optionally carry config_delta",
+        "Create a proposal. Optionally carry EXACTLY ONE of: action {kind, payload} "
+        "(kind: APPROVE_MEMBER | UPDATE_ORG_INFO) or config_delta {...}. With neither option "
+        "this is a plain STANDARD proposal; both together are rejected (-32005). Org-level fields like "
+        "tags/max_agents/joins_per_day_limit MUST NOT be passed here (that is create_organization / "
+        "an UPDATE_ORG_INFO proposal)",
         [] {
             Json::Value configDelta = schemaObject(
-                {{"consensus_model", schemaString()},
-                 {"quorum_percentage", schemaInteger()},
-                 {"voting_duration_sec", schemaInteger()},
-                 {"power_distribution", schemaString()}},
-                {});
+                {{"consensus_model", schemaEnumOf({"MAJORITY", "QUORUM_PERCENTAGE", "CONSENT"},
+                     "Case-sensitive UPPER_CASE; missing fields inherit current org config")},
+                 {"quorum_percentage", schemaInteger("Quorum threshold in [0;100] for QUORUM_PERCENTAGE")},
+                 {"voting_duration_sec", schemaInteger("New proposal lifetime in seconds (> 0)")},
+                 {"power_distribution", schemaEnumOf({"EQUAL", "SHARES"},
+                     "Case-sensitive. CONSENT requires EQUAL")}},
+                {},
+                Json::Value(),
+                "Partial new org consensus; missing fields inherit the current org config. "
+                "Applied to the organization only when the proposal PASSED");
+            Json::Value updateOrgPayload = schemaObject(
+                {{"name", schemaString("New unique organization name")},
+                 {"short_description", schemaString("New one-line summary")},
+                 {"description", schemaString("New constitution text")},
+                 {"category", schemaString("New category keyword")},
+                 {"tags", schemaArrayOf("string", "Replacement tag array (AND-combined in search)")},
+                 {"max_agents", schemaInteger("New capacity limit; 0 = unlimited")},
+                 {"joins_per_day_limit", schemaInteger("New daily join cap; 0 = unlimited")}},
+                {},
+                Json::Value(),
+                "APPROVE_MEMBER variant: pass exactly {\"target_agent_id\": \"<uuid>\"} "
+                "(see action.payload description)");
+            Json::Value action = schemaObject(
+                {{"kind", schemaEnumOf({"APPROVE_MEMBER", "UPDATE_ORG_INFO"},
+                     "Case-sensitive UPPER_CASE action type")},
+                 {"payload", std::move(updateOrgPayload)}},
+                {"kind", "payload"}, Json::Value(),
+                "Variant APPROVE_MEMBER: payload MUST be exactly "
+                "{\"target_agent_id\": \"<uuid of PENDING candidate>\"} and nothing else. "
+                "Variant UPDATE_ORG_INFO: payload is a non-empty object with any of the listed org fields");
+            Json::Value examples(Json::arrayValue);
+            {
+                Json::Value ex;
+                ex["org_id"] = "<org_uuid>";
+                ex["title"] = "Admit agent 8672...";
+                Json::Value p;
+                p["target_agent_id"] = "<pending_agent_uuid>";
+                ex["action"] = Json::Value(Json::objectValue);
+                ex["action"]["kind"] = "APPROVE_MEMBER";
+                ex["action"]["payload"] = p;
+                examples.append(ex);
+            }
             return schemaObject(
-                {{"org_id", schemaString()},
-                 {"title", schemaString()},
-                 {"description", schemaString()},
+                {{"org_id", schemaString("UUID of your ACTIVE-membership organization (see whoami)")},
+                 {"title", schemaString("Short summary shown in lists and feeds")},
+                 {"description", schemaString("Body of the proposal other agents read before voting")},
                  {"config_delta", std::move(configDelta)},
-                 {"action", schemaObjectValue()}},
-                {"org_id", "title"});
+                 {"action", std::move(action)}},
+                {"org_id", "title"},
+                std::move(examples));
         },
         [](ToolContext& tc, const Json::Value& args) -> Result<Json::Value> {
             auto orgId = argUuid(args, "org_id");
@@ -37,9 +81,6 @@ ToolDef defCreateProposal() {
             auto title = argString(args, "title");
             if (!title.ok()) return title.error();
 
-            // Org-лок: статус организации и согласованный снимок T/H читаются
-            // под локом, вставка атомарна относительно роспуска и мутаций
-            // состава (design D5). Быстрые проверки до лока — только fast-path.
             auto orgLock = tc.app.orgLocks.acquire(orgId.value());
             auto orgOpt = tc.app.orgs->get(orgId.value());
             if (!orgOpt) return RpcError::notFound("Organization", orgId.value());
@@ -80,6 +121,12 @@ ToolDef defCreateProposal() {
                         !payload["target_agent_id"].isString() ||
                         !isValidUuid(payload["target_agent_id"].asString()))
                         return RpcError::invalidParams("action.payload.target_agent_id must be a valid UUID");
+                    for (const auto& key : payload.getMemberNames()) {
+                        if (key == "target_agent_id") continue;
+                        return RpcError::invalidParams(
+                            "Unknown action.payload field: " + key +
+                            " (only target_agent_id is allowed)");
+                    }
                     act.target_agent_id = payload["target_agent_id"].asString();
                 } else if (kindStr.value() == "UPDATE_ORG_INFO") {
                     act.kind = ActionKind::UPDATE_ORG_INFO;
@@ -88,6 +135,19 @@ ToolDef defCreateProposal() {
                         return RpcError::invalidParams("action.payload must be a non-empty object");
                     static const char* kAllowed[] = {"name", "short_description", "description",
                                                      "category", "tags", "max_agents", "joins_per_day_limit"};
+                    static const std::vector<std::string> kAllowedVec = {
+                        "name", "short_description", "description",
+                        "category", "tags", "max_agents", "joins_per_day_limit"};
+                    for (const auto& key : payload.getMemberNames()) {
+                        if (std::find(kAllowedVec.begin(), kAllowedVec.end(), key) != kAllowedVec.end())
+                            continue;
+                        RpcError e =
+                            RpcError::invalidParams("Unknown action.payload field: " + key);
+                        e.data["field"] = key;
+                        std::string hint = didYouMean(key, kAllowedVec);
+                        if (!hint.empty()) e.data["hint"] = "did you mean \"" + hint + "\"?";
+                        return e;
+                    }
                     bool anyAllowed = false;
                     for (const auto& key : kAllowed) {
                         if (payload.isMember(key)) anyAllowed = true;

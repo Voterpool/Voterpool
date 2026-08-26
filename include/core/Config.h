@@ -57,6 +57,10 @@ struct McpConfig {
     std::vector<std::string> supported_versions = {"2026-07-28", "2025-11-25", "2025-06-18",
                                                    "2025-03-26"};
     std::uint64_t tools_list_cache_ttl_ms = 300000;
+
+    bool strict_arguments = true;
+    int wait_close_default_timeout_sec = 30;
+    int worker_pool_size = 0;
 };
 
 struct LoggingConfig {

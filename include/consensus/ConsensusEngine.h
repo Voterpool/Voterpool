@@ -44,6 +44,7 @@ public:
         KeyedMutexRegistry* orgLocks = nullptr;
         IClock* clock = nullptr;
         class OrgNameRegistry* orgNames = nullptr;
+        class ProposalWaitRegistry* waits = nullptr;
         std::function<void(const SseEvent&)> emit;
     };
 

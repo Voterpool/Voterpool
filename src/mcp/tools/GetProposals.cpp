@@ -9,9 +9,12 @@ ToolDef defGetProposals() {
         "Optional updated_since (unix seconds) returns only proposals created, voted or closed after it - "
         "use it for cheap incremental polling",
         [] {
-            return schemaObject({{"org_id", schemaString()},
-                                 {"filter", schemaString()},
-                                 {"updated_since", schemaInteger()}},
+            return schemaObject({{"org_id", schemaString(
+                "UUID of your ACTIVE-membership organization")},
+                                 {"filter", schemaEnumOf({"ACTIVE", "COMPLETED", "ALL"},
+                     "Case-sensitive. ACTIVE = still votable; COMPLETED = PASSED/REJECTED/EXPIRED; ALL = both. Available to every ACTIVE member")},
+                                 {"updated_since", schemaInteger(
+                     "Unix seconds; returns only proposals updated after it - cheap incremental polling")}},
                                 {"org_id"});
         },
         [](ToolContext& tc, const Json::Value& args) -> Result<Json::Value> {

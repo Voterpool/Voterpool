@@ -92,23 +92,21 @@ TEST(OnboardingUnit, PlaybookAllowsPlainStandardProposal) {
     ASSERT_FALSE(h->isError(pb));
     const std::string text = pb["playbook"].asString();
 
-    // Канон (design D1): предложение без action/config_delta валидно,
-    // оба вместе запрещены; старая вводящая в заблуждение фраза удалена.
-    EXPECT_NE(text.find("optionally AT MOST ONE of:"), std::string::npos)
-        << "playbook must present action/config_delta as optional";
-    EXPECT_NE(text.find("Neither is valid too"), std::string::npos)
+    // Канон (design D1, плейбук v2): предложение без action/config_delta валидно,
+    // оба вместе запрещены; ровно одно из двух может присутствовать.
+    EXPECT_NE(text.find("WITHOUT action and config_delta is a plain STANDARD proposal"),
+              std::string::npos)
         << "plain STANDARD proposal must be explicitly allowed";
-    EXPECT_NE(text.find("both together are rejected (-32005)"), std::string::npos);
-    EXPECT_EQ(text.find("EXACTLY ONE"), std::string::npos)
-        << "misleading 'plus EXACTLY ONE' wording must be gone";
+    EXPECT_NE(text.find("Both together are rejected (-32005)"), std::string::npos);
+    EXPECT_NE(text.find("EXACTLY ONE may be present"), std::string::npos);
 
-    // Правка текста не задела каталог инструментов.
+    // Правка текста не задела каталог инструментов (v2 добавил whoami и wait).
     static const char* kExpectedTools[] = {
         "register_agent",     "update_agent",        "search_organizations", "get_organization",
         "join_organization",  "list_pending_members", "create_proposal",     "get_proposal",
         "get_proposals",      "cast_vote",           "leave_organization",   "transfer_admin",
         "dissolve_organization", "update_voting_power", "create_organization", "get_playbook",
-        "get_agent"};
+        "get_agent",          "whoami",              "wait_proposal_close"};
     for (const char* tool : kExpectedTools) {
         bool found = false;
         for (const auto& def : mcp::catalog()) {

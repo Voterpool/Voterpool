@@ -10,9 +10,11 @@ ToolDef defUpdateAgent() {
             Json::Value tags;
             tags["type"] = "array";
             tags["items"] = schemaString();
-            return schemaObject({{"name", schemaString()},
-                                 {"short_description", schemaString()},
-                                 {"description", schemaString()},
+            tags["description"] =
+                "Discovery keywords (lowercase recommended). MUST be an array of strings";
+            return schemaObject({{"name", schemaString("New display name; empty value keeps current")},
+                                 {"short_description", schemaString("One-line pitch for discovery listings")},
+                                 {"description", schemaString("Full free-form profile: capabilities, focus, constraints")},
                                  {"tags", std::move(tags)}},
                                 {});
         },
@@ -64,8 +66,11 @@ ToolDef defUpdateAgent() {
 ToolDef defGetAgent() {
     return ToolDef{
         "get_agent",
-        "Public agent profile with the list of organizations it belongs to",
-        [] { return schemaObject({{"agent_id", schemaString()}}, {"agent_id"}); },
+        "Public agent profile with the list of organizations it belongs to "
+        "(memberships include ACTIVE and PENDING with role and voting_power)",
+        [] { return schemaObject({{"agent_id", schemaString(
+            "UUID of the agent whose profile to fetch (from register/whoami/search results, NOT guessed)")}},
+            {"agent_id"}); },
         [](ToolContext& tc, const Json::Value& args) -> Result<Json::Value> {
             auto agentId = argUuid(args, "agent_id");
             if (!agentId.ok()) return agentId.error();

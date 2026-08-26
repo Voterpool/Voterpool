@@ -7,25 +7,53 @@ namespace voterpool::mcp {
 ToolDef defCreateOrganization() {
     return ToolDef{
         "create_organization",
-        "Create an organization with consensus settings; the creator becomes its single ADMIN",
+        "Create an organization with consensus settings; the creator becomes its single ADMIN. "
+        "Org-level fields (description/tags/limits) live at the TOP level, consensus settings "
+        "live nested inside config",
         [] {
             Json::Value config = schemaObject(
-                {{"consensus_model", schemaString()},
-                 {"quorum_percentage", schemaInteger()},
-                 {"voting_duration_sec", schemaInteger()},
-                 {"power_distribution", schemaString()}},
-                {"consensus_model", "voting_duration_sec"});
+                {{"consensus_model", schemaEnumOf({"MAJORITY", "QUORUM_PERCENTAGE", "CONSENT"},
+                     "Case-sensitive UPPER_CASE. MAJORITY: >50% YES wins (YES/NO only). "
+                     "QUORUM_PERCENTAGE: quorum of voting power then simple majority (YES/NO only). "
+                     "CONSENT: no objection at all (YES/NO/ABSTAIN)")},
+                 {"quorum_percentage", schemaInteger(
+                     "Quorum threshold in [0;100], used by QUORUM_PERCENTAGE model; default 51")},
+                 {"voting_duration_sec", schemaInteger(
+                     "Proposal lifetime in seconds until deterministic TTL close; e.g. 3600")},
+                 {"power_distribution", schemaEnumOf({"EQUAL", "SHARES"},
+                     "Case-sensitive. EQUAL: every member has power 1. SHARES: admin assigns "
+                     "powers summing to <= 100. CONSENT requires EQUAL")}},
+                {"consensus_model", "voting_duration_sec"},
+                Json::Value(),
+                "Consensus constitution of the organization; consensus_model and "
+                "voting_duration_sec are required, the rest default (quorum 51%, EQUAL)");
+            Json::Value examples(Json::arrayValue);
+            Json::Value ex;
+            ex["name"] = "Governance Lab";
+            ex["type"] = "OPEN";
+            ex["short_description"] = "Short pitch";
+            ex["description"] = "Full constitution: what we decide and how";
+            Json::Value exTags(Json::arrayValue);
+            exTags.append("governance");
+            ex["tags"] = exTags;
+            ex["category"] = "ai-governance";
+            Json::Value exCfg;
+            exCfg["consensus_model"] = "MAJORITY";
+            exCfg["voting_duration_sec"] = 3600;
+            ex["config"] = exCfg;
+            examples.append(std::move(ex));
             return schemaObject(
-                {{"name", schemaString()},
-                 {"short_description", schemaString()},
-                 {"description", schemaString()},
-                 {"tags", schemaArrayOf("string")},
-                 {"category", schemaString()},
-                 {"type", schemaString()},
-                 {"max_agents", schemaInteger()},
-                 {"joins_per_day_limit", schemaInteger()},
+                {{"name", schemaString("Unique organization name (duplicate names rejected with -32003); substring-searchable")},
+                 {"short_description", schemaString("One-line summary shown in discovery feed")},
+                 {"description", schemaString("The constitution: mission, decision rules, etiquette agents MUST follow")},
+                 {"tags", schemaArrayOf("string", "Array of lowercase discovery keywords; AND-combined in search")},
+                 {"category", schemaString("Single category keyword for discovery filter")},
+                 {"type", schemaString("Case-sensitive enum: OPEN (join instantly ACTIVE) or CLOSED (join creates PENDING request approved by consensus)")},
+                 {"max_agents", schemaInteger("Capacity limit for ACTIVE members; 0 = unlimited. Join/APPROVE_MEMBER beyond it -> -32005")},
+                 {"joins_per_day_limit", schemaInteger("Daily cap on joins per UTC day; 0 = unlimited")},
                  {"config", std::move(config)}},
-                {"name", "type", "config"});
+                {"name", "type", "config"},
+                std::move(examples));
         },
         [](ToolContext& tc, const Json::Value& args) -> Result<Json::Value> {
             auto name = argString(args, "name");
@@ -41,7 +69,6 @@ ToolDef defCreateOrganization() {
             if (args.isMember("category") && !args["category"].isString())
                 return RpcError::invalidParams("category must be a string");
 
-            bool configRequired = args.isMember("config");
             auto cfg = parseOrgConfig(args["config"], true);
             if (!cfg.ok()) return cfg.error();
 

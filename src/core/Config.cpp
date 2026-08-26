@@ -102,6 +102,10 @@ void applyYaml(AppConfig& c, const YAML::Node& root) {
                 c.mcp.supported_versions.push_back(v.as<std::string>());
         }
         if (n["tools_list_cache_ttl_ms"]) c.mcp.tools_list_cache_ttl_ms = n["tools_list_cache_ttl_ms"].as<std::uint64_t>();
+        if (n["strict_arguments"]) c.mcp.strict_arguments = n["strict_arguments"].as<bool>();
+        if (n["wait_close_default_timeout_sec"])
+            c.mcp.wait_close_default_timeout_sec = n["wait_close_default_timeout_sec"].as<int>();
+        if (n["worker_pool_size"]) c.mcp.worker_pool_size = n["worker_pool_size"].as<int>();
     }
     if (auto n = sec("cluster"); n && n.IsMap()) {
         if (n["mode"]) c.cluster.mode = n["mode"].as<std::string>();
@@ -154,6 +158,11 @@ void applyEnv(AppConfig& c) {
     c.mcp.supported_versions =
         envCsvOr("VOTERPOOL_MCP_SUPPORTED_VERSIONS", c.mcp.supported_versions);
     c.mcp.tools_list_cache_ttl_ms = static_cast<std::uint64_t>(envInt("VOTERPOOL_MCP_TOOLS_LIST_CACHE_TTL_MS", static_cast<long long>(c.mcp.tools_list_cache_ttl_ms)));
+    c.mcp.strict_arguments = envBool("VOTERPOOL_MCP_STRICT_ARGUMENTS", c.mcp.strict_arguments);
+    c.mcp.wait_close_default_timeout_sec = static_cast<int>(
+        envInt("VOTERPOOL_MCP_WAIT_CLOSE_DEFAULT_TIMEOUT_SEC", c.mcp.wait_close_default_timeout_sec));
+    c.mcp.worker_pool_size =
+        static_cast<int>(envInt("VOTERPOOL_MCP_WORKER_POOL_SIZE", c.mcp.worker_pool_size));
     c.logging.level = envOr("VOTERPOOL_LOGGING_LEVEL", c.logging.level);
     c.logging.format = envOr("VOTERPOOL_LOGGING_FORMAT", c.logging.format);
     c.logging.async = envBool("VOTERPOOL_LOGGING_ASYNC", c.logging.async);
@@ -278,6 +287,11 @@ void AppConfig::validate() const {
                           mcp.protocol_version + ")");
     if (mcp.tools_list_cache_ttl_ms == 0)
         throw ConfigError("mcp.tools_list_cache_ttl_ms must be > 0");
+    if (mcp.wait_close_default_timeout_sec < 1 || mcp.wait_close_default_timeout_sec > 90)
+        throw ConfigError("mcp.wait_close_default_timeout_sec must be in [1; 90], got " +
+                          std::to_string(mcp.wait_close_default_timeout_sec));
+    if (mcp.worker_pool_size < 0)
+        throw ConfigError("mcp.worker_pool_size must be >= 0");
     if (logging.async_queue_size == 0 || (logging.async_queue_size & (logging.async_queue_size - 1)) != 0)
         throw ConfigError("logging.async_queue_size must be a power of two");
     if (logging.level.empty())

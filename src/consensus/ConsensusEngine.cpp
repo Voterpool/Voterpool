@@ -4,6 +4,7 @@
 #include "consensus/ProposalLock.h"
 #include "core/IClock.h"
 #include "core/Metrics.h"
+#include "server/ProposalWaitRegistry.h"
 #include "storage/Keys.h"
 #include "storage/OrgNameRegistry.h"
 #include "storage/RocksDBWrapper.h"
@@ -320,6 +321,7 @@ Result<VoteReceipt> ConsensusEngine::castVote(const std::string& agentId, const 
     }
     if (closed.closed) {
         emitClosed(p, closed);
+        if (d_.waits) d_.waits->notifyClosed(proposalId);
         d_.locks->forget(proposalId);
     }
 
@@ -384,6 +386,7 @@ bool ConsensusEngine::closeProposalByTimer(const std::string& orgId, const std::
         MetricsRegistry::instance().incCounter("voterpool_proposals_closed_total", {{"final_status", toString(info.status)}});
         MetricsRegistry::instance().setGauge("voterpool_proposals_active", {}, d_.proposals->countActiveGauge());
         emitClosed(p, info);
+        if (d_.waits) d_.waits->notifyClosed(proposalId);
     }
     return true;
 }
@@ -500,6 +503,7 @@ Result<DissolveOutcome> ConsensusEngine::dissolveOrganization(const std::string&
 
             for (const auto& id : closedIds) {
                 d_.locks->forget(id);
+                if (d_.waits) d_.waits->notifyClosed(id);
                 MetricsRegistry::instance().incCounter("voterpool_proposals_closed_total",
                                                        {{"final_status", "EXPIRED"}});
             }
@@ -543,6 +547,7 @@ Result<DissolveOutcome> ConsensusEngine::dissolveOrganization(const std::string&
         if (!d_.db->commit(batch)) break;  // TTL-воркер доработает остаток
         for (const auto& id : closedIds) {
             d_.locks->forget(id);
+            if (d_.waits) d_.waits->notifyClosed(id);
             MetricsRegistry::instance().incCounter("voterpool_proposals_closed_total",
                                                    {{"final_status", "EXPIRED"}});
         }

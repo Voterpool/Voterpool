@@ -190,6 +190,7 @@ int VoterpoolApp::run() {
 }
 
 void VoterpoolApp::finalizeShutdown() {
+    mcp::shutdownDispatchPool();
     if (!ctx_.workers) return;
     ctx_.workers->stop();
     ctx_.workers.reset();

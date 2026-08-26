@@ -26,5 +26,6 @@ Result<Json::Value> dispatchToolForTests(AppContext& app, const AgentContext* ag
 enum class MetaAuthStatus { Absent, Ok, Invalid };
 
 MetaAuthStatus authenticateViaMeta(AppContext& app, const Json::Value& root, AgentContext& out);
+void shutdownDispatchPool();
 
 }  // namespace voterpool::mcp

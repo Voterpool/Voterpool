@@ -6,7 +6,9 @@ ToolDef defLeaveOrganization() {
     return ToolDef{
         "leave_organization",
         "Leave an organization; the last ADMIN must transfer admin rights first",
-        [] { return schemaObject({{"org_id", schemaString()}}, {"org_id"}); },
+        [] { return schemaObject({{"org_id", schemaString(
+            "UUID of the organization you are leaving; the last ADMIN MUST transfer_admin first")}},
+            {"org_id"}); },
         [](ToolContext& tc, const Json::Value& args) -> Result<Json::Value> {
             auto orgId = argUuid(args, "org_id");
             if (!orgId.ok()) return orgId.error();
@@ -59,8 +61,10 @@ ToolDef defTransferAdmin() {
         "transfer_admin",
         "ADMIN-only: transfer the ADMIN role to another ACTIVE member (exactly one admin at any time)",
         [] {
-            return schemaObject({{"org_id", schemaString()},
-                                 {"target_agent_id", schemaString()}},
+            return schemaObject({{"org_id", schemaString(
+                "UUID of the organization whose admin rights are transferred")},
+                                 {"target_agent_id", schemaString(
+                 "UUID of an ACTIVE member who becomes the new ADMIN")}},
                                 {"org_id", "target_agent_id"});
         },
         [](ToolContext& tc, const Json::Value& args) -> Result<Json::Value> {

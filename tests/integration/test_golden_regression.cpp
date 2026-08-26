@@ -129,8 +129,7 @@ Json::Value runScenario(std::map<std::string, std::string>& idmap) {
     Json::Value propArgs;
     propArgs["org_id"] = orgId;
     propArgs["title"] = "Golden proposal";
-    propArgs["body"] = "Approve golden scenario";
-    propArgs["expires_in_sec"] = 500;
+    propArgs["description"] = "Approve golden scenario";
     auto propRes = mcp::dispatchToolForTests(*h->app, &ctx[0], "create_proposal", propArgs);
     if (propRes.ok()) idmap[propRes.value()["proposal_id"].asString()] = "PROP_1";
     step("create_proposal", propRes);

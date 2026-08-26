@@ -5,6 +5,7 @@
 #include "core/Config.h"
 #include "core/IClock.h"
 #include "server/AuthProvider.h"
+#include "server/ProposalWaitRegistry.h"
 #include "server/SseHub.h"
 #include "server/Workers.h"
 #include "storage/RocksDBWrapper.h"
@@ -37,6 +38,7 @@ struct AppContext {
     std::unique_ptr<scaling::IEventBus> events;
     ProposalLockRegistry locks;
     KeyedMutexRegistry orgLocks;
+    ProposalWaitRegistry proposalWaits;
     std::unique_ptr<ConsensusEngine> engine;
     std::unique_ptr<SseHub> hub;
     std::unique_ptr<Workers> workers;

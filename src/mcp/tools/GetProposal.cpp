@@ -8,7 +8,9 @@ ToolDef defGetProposal() {
         "Fetch the full card of a single proposal by proposal_id: status, aggregated powers, "
         "timestamps, applied action/config_delta flags and (for ACTIVE members) the complete "
         "vote list with each agent's decision and power at vote",
-        [] { return schemaObject({{"proposal_id", schemaString()}}, {"proposal_id"}); },
+        [] { return schemaObject({{"proposal_id", schemaString(
+            "UUID of the proposal card to fetch (full card with votes for ACTIVE members)")}},
+            {"proposal_id"}); },
         [](ToolContext& tc, const Json::Value& args) -> Result<Json::Value> {
             auto proposalId = argUuid(args, "proposal_id");
             if (!proposalId.ok()) return proposalId.error();
@@ -40,6 +42,8 @@ ToolDef defGetProposal() {
             out["voters_count"] = static_cast<Json::Int64>(p->voters_count);
             out["total_voting_power_at_creation"] = p->total_voting_power_at_creation;
             out["eligible_voters_at_creation"] = static_cast<Json::Int64>(p->eligible_voters_at_creation);
+            out["allowed_decisions"] =
+                allowedDecisionsJson(p->config_at_creation.consensus_model);
             out["created_at"] = static_cast<Json::Int64>(p->created_at);
             out["expires_at"] = static_cast<Json::Int64>(p->expires_at);
             out["updated_at"] = static_cast<Json::Int64>(p->updated_at);

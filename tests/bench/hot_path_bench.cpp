@@ -111,8 +111,7 @@ int main(int argc, char** argv) {
     Json::Value propArgs;
     propArgs["org_id"] = orgId;
     propArgs["title"] = "Bench proposal";
-    propArgs["body"] = "Should we keep benchmarking?";
-    propArgs["expires_in_sec"] = 3600;
+    propArgs["description"] = "Should we keep benchmarking?";
     auto propRes = mcp::dispatchToolForTests(app, &c1, "create_proposal", propArgs);
     if (!propRes.ok()) {
         fprintf(stderr, "create_proposal failed\n");

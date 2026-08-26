@@ -175,7 +175,6 @@ TEST(BucketScans, TtlClosesAcrossBucketsAndCursorPaginationComplete) {
         Json::Value a;
         a["org_id"] = f.orgIds[i];
         a["title"] = "Expiry " + std::to_string(i);
-        a["expires_in_sec"] = 100;
         auto r = mcp::dispatchToolForTests(*f.h->app, &f.admin, "create_proposal", a);
         if (!r.ok())
             ADD_FAILURE() << "create_proposal[" << i << "] code=" << r.error().code

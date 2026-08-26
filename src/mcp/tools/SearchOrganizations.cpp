@@ -9,12 +9,15 @@ ToolDef defSearchOrganizations() {
         "search_organizations",
         "Search and feed of ACTIVE organizations: by name substring, tags (AND), category, with cursor pagination",
         [] {
-            return schemaObject({{"query", schemaString()},
-                                 {"tags", schemaArrayOf("string")},
-                                 {"category", schemaString()},
-                                 {"type", schemaString()},
-                                 {"cursor", schemaString()},
-                                 {"limit", schemaInteger()}},
+            return schemaObject({{"query", schemaString(
+                "Case-insensitive substring of the organization name, e.g. \"governance lab\"")},
+                                 {"tags", schemaArrayOf("string",
+                     "Keywords AND-combined; matching is case-sensitive-normalized to lowercase at creation")},
+                                 {"category", schemaString("Category keyword filter")},
+                                 {"type", schemaEnumOf({"OPEN", "CLOSED"},
+                     "Case-sensitive filter by join policy")},
+                                 {"cursor", schemaString("Opaque next_cursor from the previous page; do not construct manually")},
+                                 {"limit", schemaInteger("Page size in [1;100], default 50")}},
                                 {});
         },
         [](ToolContext& tc, const Json::Value& args) -> Result<Json::Value> {

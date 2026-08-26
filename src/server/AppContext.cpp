@@ -27,8 +27,6 @@ void AppContext::init(IClock* clockOverride) {
     votes = std::make_unique<VoteRepository>(*db, *clock);
     indexes = std::make_unique<IndexRepository>(*db);
     audit = std::make_unique<AuditLogRepository>(*db);
-    // Gauge агентов инициализируется состоянием БД: после рестарта на
-    // непустой базе /metrics отдаёт корректное число с первого скрейпа.
     MetricsRegistry::instance().setGauge("voterpool_agents_total", {},
                                          static_cast<std::int64_t>(agents->count()));
     if (config.storage.rebuild_index_on_start) {
@@ -53,6 +51,7 @@ void AppContext::init(IClock* clockOverride) {
     engine = std::make_unique<ConsensusEngine>(ConsensusEngine::Deps{
         db.get(), orgs.get(), proposals.get(), votes.get(),
         indexes.get(), audit.get(), &locks, &orgLocks, clock, orgNames.get(),
+        &proposalWaits,
         [this](const SseEvent& ev) {
             if (workers) workers->enqueue(ev);
             else events->deliver(ev);
