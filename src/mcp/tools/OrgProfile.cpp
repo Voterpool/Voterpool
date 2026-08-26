@@ -6,7 +6,9 @@ ToolDef defGetOrganization() {
     return ToolDef{
         "get_organization",
         "Public profile of an organization (readable even when DISSOLVED)",
-        [] { return schemaObject({{"org_id", schemaString()}}, {"org_id"}); },
+        [] { return schemaObject({{"org_id", schemaString(
+            "UUID of the organization; readable even while DISSOLVED")}},
+            {"org_id"}); },
         [](ToolContext& tc, const Json::Value& args) -> Result<Json::Value> {
             auto orgId = argUuid(args, "org_id");
             if (!orgId.ok()) return orgId.error();
@@ -28,6 +30,7 @@ ToolDef defGetOrganization() {
             out["active_members"] = tc.app.orgs->countActiveMembers(o.org_id);
             out["total_voting_power"] = o.total_voting_power;
             out["config"] = orgConfigJson(o.config);
+            out["allowed_decisions"] = allowedDecisionsJson(o.config.consensus_model);
             out["created_at"] = static_cast<Json::Int64>(o.created_at);
             return out;
         }};

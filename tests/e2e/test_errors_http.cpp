@@ -186,6 +186,28 @@ TEST(E2eErrors, HeaderViolationsStillRejectedWithInvalidRequest) {
     EXPECT_EQ(out["error"]["code"].asInt(), -32600);
 }
 
+TEST(E2eErrors, BrokenBodyWithUnknownVersionAndNoHeadersIsParseError) {
+    // Битое тело не нарушает протокол ни в одной комбинации заголовков:
+    // даже с неизвестной версией запрос доходит до хендлера и получает
+    // -32700 + HTTP 400, а не -32600.
+    HttpResponse resp = HttpUtil::request(E2eEnv::instance().host(), E2eEnv::instance().port(), "POST",
+                                          "/mcp",
+                                          {{"Content-Type", "application/json"}},
+                                          "{oops");
+    EXPECT_EQ(resp.status, 400);
+    Json::Value out = parseJson(resp.body);
+    EXPECT_EQ(out["error"]["code"].asInt(), -32700);
+
+    resp = HttpUtil::request(E2eEnv::instance().host(), E2eEnv::instance().port(), "POST", "/mcp",
+                             {{"Content-Type", "application/json"},
+                              {"MCP-Protocol-Version", "1999-01-01"},
+                              {"Mcp-Method", "tools/call"}},
+                             "{oops");
+    EXPECT_EQ(resp.status, 400);
+    out = parseJson(resp.body);
+    EXPECT_EQ(out["error"]["code"].asInt(), -32700);
+}
+
 TEST(E2eErrors, HealthAndMetricsAreAnonymous) {
     HttpResponse health = HttpUtil::get(E2eEnv::instance().host(), E2eEnv::instance().port(), "/health");
     EXPECT_EQ(health.status, 200);

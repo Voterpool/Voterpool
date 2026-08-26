@@ -6,7 +6,9 @@ ToolDef defJoinOrganization() {
     return ToolDef{
         "join_organization",
         "Join an organization: instant ACTIVE membership for OPEN orgs, PENDING request for CLOSED ones",
-        [] { return schemaObject({{"org_id", schemaString()}}, {"org_id"}); },
+        [] { return schemaObject({{"org_id", schemaString(
+            "UUID of the organization to join; OPEN joins instantly ACTIVE, CLOSED creates a PENDING request")}},
+            {"org_id"}); },
         [](ToolContext& tc, const Json::Value& args) -> Result<Json::Value> {
             auto orgId = argUuid(args, "org_id");
             if (!orgId.ok()) return orgId.error();
@@ -35,11 +37,6 @@ ToolDef defJoinOrganization() {
             double power =
                 orgOpt->config.power_distribution == PowerDistribution::EQUAL ? 1.0 : 0.0;
 
-            // Org-лок сериализует чтение организации, проверку лимитов,
-            // инкремент счётчика и обновление total_voting_power с
-            // конкурентными мутациями организации (design D5).
-            // PENDING-ветка ниже остаётся без лока: пишет независимые
-            // ключи, повтор идемпотентен.
             auto orgLock = tc.app.orgLocks.acquire(orgId.value());
             orgOpt = tc.app.orgs->get(orgId.value());
             if (!orgOpt || orgOpt->status == OrgStatus::DISSOLVED)
@@ -71,7 +68,7 @@ ToolDef defJoinOrganization() {
                 m.updated_at = now;
 
                 rocksdb::WriteBatch batch;
-                tc.app.orgs->putMembership(batch, m);
+                tc.app.identity->recordMembershipLink(batch, m);
                 tc.app.indexes->incrementJoinLimit(batch, orgId.value(), now);
                 Organization updated = *orgOpt;
                 updated.total_voting_power += power;
@@ -85,7 +82,7 @@ ToolDef defJoinOrganization() {
                 ev["role"] = "MEMBER";
                 ev["voting_power"] = power;
                 ev["new_total_voting_power"] = updated.total_voting_power;
-                tc.app.hub->deliver(SseEvent{orgId.value(), "member_joined", Codec::dump(ev)});
+                tc.app.events->deliver(SseEvent{orgId.value(), "member_joined", Codec::dump(ev)});
 
                 Json::Value out;
                 out["org_id"] = orgId.value();
@@ -106,7 +103,7 @@ ToolDef defJoinOrganization() {
             m.updated_at = now;
 
             rocksdb::WriteBatch batch;
-            tc.app.orgs->putMembership(batch, m);
+            tc.app.identity->recordMembershipLink(batch, m);
             tc.app.indexes->addPending(batch, orgId.value(), tc.agent->agent_id, std::to_string(now));
             if (!tc.app.db->commit(batch)) return RpcError::internal("Storage write failed");
 
@@ -114,7 +111,7 @@ ToolDef defJoinOrganization() {
             req["org_id"] = orgId.value();
             req["agent_id"] = tc.agent->agent_id;
             req["requested_at"] = static_cast<Json::Int64>(now);
-            tc.app.hub->deliver(SseEvent{orgId.value(), "join_requested", Codec::dump(req)});
+            tc.app.events->deliver(SseEvent{orgId.value(), "join_requested", Codec::dump(req)});
 
             Json::Value out;
             out["org_id"] = orgId.value();

@@ -2,6 +2,7 @@
 
 #include <yaml-cpp/yaml.h>
 
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -31,6 +32,27 @@ bool envBool(const char* name, bool fallback) {
     if (!v || !*v) return fallback;
     std::string s(v);
     return s == "1" || s == "true" || s == "TRUE" || s == "yes" || s == "on";
+}
+
+std::vector<std::string> envCsvOr(const char* name, const std::vector<std::string>& fallback) {
+    const char* v = std::getenv(name);
+    if (!v || !*v) return fallback;
+    std::vector<std::string> out;
+    std::string item;
+    auto flush = [&] {
+        while (!item.empty() && (item.front() == ' ' || item.front() == '\t')) item.erase(item.begin());
+        while (!item.empty() && (item.back() == ' ' || item.back() == '\t')) item.pop_back();
+        out.push_back(std::move(item));
+        item.clear();
+    };
+    for (const char* p = v; *p; ++p) {
+        if (*p == ',')
+            flush();
+        else
+            item.push_back(*p);
+    }
+    flush();
+    return out;
 }
 
 void applyYaml(AppConfig& c, const YAML::Node& root) {
@@ -74,7 +96,19 @@ void applyYaml(AppConfig& c, const YAML::Node& root) {
     }
     if (auto n = sec("mcp"); n && n.IsMap()) {
         if (n["protocol_version"]) c.mcp.protocol_version = n["protocol_version"].as<std::string>();
+        if (n["supported_versions"] && n["supported_versions"].IsSequence()) {
+            c.mcp.supported_versions.clear();
+            for (const auto& v : n["supported_versions"])
+                c.mcp.supported_versions.push_back(v.as<std::string>());
+        }
         if (n["tools_list_cache_ttl_ms"]) c.mcp.tools_list_cache_ttl_ms = n["tools_list_cache_ttl_ms"].as<std::uint64_t>();
+        if (n["strict_arguments"]) c.mcp.strict_arguments = n["strict_arguments"].as<bool>();
+        if (n["wait_close_default_timeout_sec"])
+            c.mcp.wait_close_default_timeout_sec = n["wait_close_default_timeout_sec"].as<int>();
+        if (n["worker_pool_size"]) c.mcp.worker_pool_size = n["worker_pool_size"].as<int>();
+    }
+    if (auto n = sec("cluster"); n && n.IsMap()) {
+        if (n["mode"]) c.cluster.mode = n["mode"].as<std::string>();
     }
     if (auto n = sec("logging"); n && n.IsMap()) {
         if (n["level"]) c.logging.level = n["level"].as<std::string>();
@@ -121,7 +155,14 @@ void applyEnv(AppConfig& c) {
     c.metrics.enabled = envBool("VOTERPOOL_METRICS_ENABLED", c.metrics.enabled);
     c.metrics.path = envOr("VOTERPOOL_METRICS_PATH", c.metrics.path);
     c.mcp.protocol_version = envOr("VOTERPOOL_MCP_PROTOCOL_VERSION", c.mcp.protocol_version);
+    c.mcp.supported_versions =
+        envCsvOr("VOTERPOOL_MCP_SUPPORTED_VERSIONS", c.mcp.supported_versions);
     c.mcp.tools_list_cache_ttl_ms = static_cast<std::uint64_t>(envInt("VOTERPOOL_MCP_TOOLS_LIST_CACHE_TTL_MS", static_cast<long long>(c.mcp.tools_list_cache_ttl_ms)));
+    c.mcp.strict_arguments = envBool("VOTERPOOL_MCP_STRICT_ARGUMENTS", c.mcp.strict_arguments);
+    c.mcp.wait_close_default_timeout_sec = static_cast<int>(
+        envInt("VOTERPOOL_MCP_WAIT_CLOSE_DEFAULT_TIMEOUT_SEC", c.mcp.wait_close_default_timeout_sec));
+    c.mcp.worker_pool_size =
+        static_cast<int>(envInt("VOTERPOOL_MCP_WORKER_POOL_SIZE", c.mcp.worker_pool_size));
     c.logging.level = envOr("VOTERPOOL_LOGGING_LEVEL", c.logging.level);
     c.logging.format = envOr("VOTERPOOL_LOGGING_FORMAT", c.logging.format);
     c.logging.async = envBool("VOTERPOOL_LOGGING_ASYNC", c.logging.async);
@@ -229,12 +270,28 @@ void AppConfig::validate() const {
         throw ConfigError("auth.mode must be NATIVE or OIDC");
     if (auth.mode == "OIDC")
         throw ConfigError("OIDC auth mode is not available in the On-Premises (Self-Hosted) edition");
+    if (cluster.mode != "standalone")
+        throw ConfigError("cluster.mode must be \"standalone\" at this stage; got \"" +
+                          cluster.mode + "\"");
     if (sse.heartbeat_interval_sec <= 0)
         throw ConfigError("sse.heartbeat_interval_sec must be > 0");
     if (mcp.protocol_version.empty())
         throw ConfigError("mcp.protocol_version must not be empty");
+    if (mcp.supported_versions.empty())
+        throw ConfigError("mcp.supported_versions must not be empty");
+    for (const auto& v : mcp.supported_versions)
+        if (v.empty()) throw ConfigError("mcp.supported_versions must not contain empty strings");
+    if (std::find(mcp.supported_versions.begin(), mcp.supported_versions.end(), mcp.protocol_version) ==
+        mcp.supported_versions.end())
+        throw ConfigError("mcp.supported_versions must contain mcp.protocol_version (" +
+                          mcp.protocol_version + ")");
     if (mcp.tools_list_cache_ttl_ms == 0)
         throw ConfigError("mcp.tools_list_cache_ttl_ms must be > 0");
+    if (mcp.wait_close_default_timeout_sec < 1 || mcp.wait_close_default_timeout_sec > 90)
+        throw ConfigError("mcp.wait_close_default_timeout_sec must be in [1; 90], got " +
+                          std::to_string(mcp.wait_close_default_timeout_sec));
+    if (mcp.worker_pool_size < 0)
+        throw ConfigError("mcp.worker_pool_size must be >= 0");
     if (logging.async_queue_size == 0 || (logging.async_queue_size & (logging.async_queue_size - 1)) != 0)
         throw ConfigError("logging.async_queue_size must be a power of two");
     if (logging.level.empty())

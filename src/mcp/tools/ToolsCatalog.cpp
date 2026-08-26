@@ -9,6 +9,7 @@ std::vector<ToolDef>& catalog() {
     static std::vector<ToolDef> cat = [] {
         std::vector<ToolDef> v;
         v.push_back(defRegisterAgent());
+        v.push_back(defWhoami());
         v.push_back(defCreateOrganization());
         v.push_back(defJoinOrganization());
         v.push_back(defUpdateVotingPower());
@@ -18,6 +19,7 @@ std::vector<ToolDef>& catalog() {
         v.push_back(defListPendingMembers());
         v.push_back(defListMembers());
         v.push_back(defCastVote());
+        v.push_back(defWaitProposalClose());
         v.push_back(defSearchOrganizations());
         v.push_back(defGetOrganization());
         v.push_back(defGetAgent());

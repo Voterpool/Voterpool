@@ -1,4 +1,4 @@
-# Мода A: voterpool запущен на хосте (например, под systemd).
+# Вариант 1: voterpool запущен на хосте (например, под systemd).
 # Observability-стек тот же; скрейп приложения через host-gateway.
 # Запуск: docker compose -f docker-compose.yml -f docker-compose.hostmode.yaml up -d
 services:

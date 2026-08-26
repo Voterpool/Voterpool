@@ -4,6 +4,7 @@
 #include <map>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace voterpool {
 
@@ -53,7 +54,13 @@ struct MetricsConfig {
 
 struct McpConfig {
     std::string protocol_version = "2026-07-28";
+    std::vector<std::string> supported_versions = {"2026-07-28", "2025-11-25", "2025-06-18",
+                                                   "2025-03-26"};
     std::uint64_t tools_list_cache_ttl_ms = 300000;
+
+    bool strict_arguments = true;
+    int wait_close_default_timeout_sec = 30;
+    int worker_pool_size = 0;
 };
 
 struct LoggingConfig {
@@ -62,6 +69,10 @@ struct LoggingConfig {
     bool async = true;
     std::size_t async_queue_size = 8192;
     std::string log_file;
+};
+
+struct ClusterConfig {
+    std::string mode = "standalone";
 };
 
 struct RateLimitConfig {
@@ -79,6 +90,7 @@ struct AppConfig {
     McpConfig mcp;
     LoggingConfig logging;
     RateLimitConfig rate_limit;
+    ClusterConfig cluster;
 
     static AppConfig load(int argc, char** argv);
     void validate() const;

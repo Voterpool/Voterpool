@@ -324,6 +324,7 @@ TEST(Actions, LimitBlockedApprovalKeepsCardEventAndMetricHonest) {
         c.h->app->db.get(), c.h->app->orgs.get(), c.h->app->proposals.get(),
         c.h->app->votes.get(), c.h->app->indexes.get(), c.h->app->audit.get(),
         &c.h->app->locks, &c.h->app->orgLocks, &c.h->clock, c.h->app->orgNames.get(),
+        nullptr,
         [&events](const SseEvent& ev) { events.push_back(ev); }});
     auto receipt = recorder.castVote(c.creator.agent_id, pid, VoteDecision::YES);
     ASSERT_TRUE(receipt.ok()) << receipt.error().message;

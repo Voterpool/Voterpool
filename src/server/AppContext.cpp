@@ -1,6 +1,5 @@
 #include "server/AppContext.h"
 
-#include "server/NativeAuthProvider.h"
 #include "storage/SchemaVersion.h"
 
 #include <spdlog/spdlog.h>
@@ -28,8 +27,6 @@ void AppContext::init(IClock* clockOverride) {
     votes = std::make_unique<VoteRepository>(*db, *clock);
     indexes = std::make_unique<IndexRepository>(*db);
     audit = std::make_unique<AuditLogRepository>(*db);
-    // Gauge агентов инициализируется состоянием БД: после рестарта на
-    // непустой базе /metrics отдаёт корректное число с первого скрейпа.
     MetricsRegistry::instance().setGauge("voterpool_agents_total", {},
                                          static_cast<std::int64_t>(agents->count()));
     if (config.storage.rebuild_index_on_start) {
@@ -44,17 +41,20 @@ void AppContext::init(IClock* clockOverride) {
         db->commit(batch);
         spdlog::info("Rebuilt active-proposals index: {} entries", restored);
     }
-    authProvider = std::make_unique<NativeAuthProvider>(*agents);
     hub = std::make_unique<SseHub>();
     orgNames = std::make_unique<OrgNameRegistry>();
     orgNames->load(*db);
     spdlog::info("Loaded organization name registry: {} entries", orgNames->size());
+    directory = std::make_unique<scaling::LocalDirectory>(*orgNames, *indexes, *orgs, *proposals);
+    identity = std::make_unique<scaling::LocalIdentity>(*agents, *orgs);
+    events = std::make_unique<scaling::LocalEventBus>(*hub);
     engine = std::make_unique<ConsensusEngine>(ConsensusEngine::Deps{
         db.get(), orgs.get(), proposals.get(), votes.get(),
         indexes.get(), audit.get(), &locks, &orgLocks, clock, orgNames.get(),
+        &proposalWaits,
         [this](const SseEvent& ev) {
             if (workers) workers->enqueue(ev);
-            else hub->deliver(ev);
+            else events->deliver(ev);
         }});
 }
 

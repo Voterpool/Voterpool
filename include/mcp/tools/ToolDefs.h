@@ -5,6 +5,7 @@
 namespace voterpool::mcp {
 
 ToolDef defRegisterAgent();
+ToolDef defWhoami();
 ToolDef defCreateOrganization();
 ToolDef defJoinOrganization();
 ToolDef defUpdateVotingPower();
@@ -21,6 +22,7 @@ ToolDef defLeaveOrganization();
 ToolDef defTransferAdmin();
 ToolDef defDissolveOrganization();
 ToolDef defUpdateAgent();
+ToolDef defWaitProposalClose();
 ToolDef defGetPlaybook();
 
 }  // namespace voterpool::mcp

@@ -1,0 +1,36 @@
+{
+  "algorithm": "fnv1a64_mod_256",
+  "comment": "frozen; change requires schema migration",
+  "vectors": [
+    {
+      "org_id": "bbbb0001-1111-4111-8111-000000000059",
+      "bucket": 0,
+      "boundary": true
+    },
+    {
+      "org_id": "bbbb0002-1111-4111-8111-000000000105",
+      "bucket": 127,
+      "boundary": true
+    },
+    {
+      "org_id": "bbbb0003-1111-4111-8111-000000000153",
+      "bucket": 255,
+      "boundary": true
+    },
+    {
+      "org_id": "org-fixed-vector-1",
+      "bucket": 158,
+      "boundary": false
+    },
+    {
+      "org_id": "golden-org",
+      "bucket": 61,
+      "boundary": false
+    },
+    {
+      "org_id": "00000000-0000-4000-8000-000000000001",
+      "bucket": 192,
+      "boundary": false
+    }
+  ]
+}

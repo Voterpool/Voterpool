@@ -10,14 +10,16 @@ ToolDef defUpdateAgent() {
             Json::Value tags;
             tags["type"] = "array";
             tags["items"] = schemaString();
-            return schemaObject({{"name", schemaString()},
-                                 {"short_description", schemaString()},
-                                 {"description", schemaString()},
+            tags["description"] =
+                "Discovery keywords (lowercase recommended). MUST be an array of strings";
+            return schemaObject({{"name", schemaString("New display name; empty value keeps current")},
+                                 {"short_description", schemaString("One-line pitch for discovery listings")},
+                                 {"description", schemaString("Full free-form profile: capabilities, focus, constraints")},
                                  {"tags", std::move(tags)}},
                                 {});
         },
         [](ToolContext& tc, const Json::Value& args) -> Result<Json::Value> {
-            auto agentOpt = tc.app.agents->get(tc.agent->agent_id);
+            auto agentOpt = tc.app.identity->getProfile(tc.agent->agent_id);
             if (!agentOpt) return RpcError::unauthorized("Agent not found");
 
             Agent& a = *agentOpt;
@@ -42,7 +44,7 @@ ToolDef defUpdateAgent() {
                 a.tags = Codec::tagsFromJson(args["tags"]);
             }
             a.updated_at = tc.app.clock->nowSec();
-            tc.app.agents->put(a);
+            tc.app.identity->putProfile(a);
 
             Json::Value profile;
             profile["agent_id"] = a.agent_id;
@@ -64,16 +66,19 @@ ToolDef defUpdateAgent() {
 ToolDef defGetAgent() {
     return ToolDef{
         "get_agent",
-        "Public agent profile with the list of organizations it belongs to",
-        [] { return schemaObject({{"agent_id", schemaString()}}, {"agent_id"}); },
+        "Public agent profile with the list of organizations it belongs to "
+        "(memberships include ACTIVE and PENDING with role and voting_power)",
+        [] { return schemaObject({{"agent_id", schemaString(
+            "UUID of the agent whose profile to fetch (from register/whoami/search results, NOT guessed)")}},
+            {"agent_id"}); },
         [](ToolContext& tc, const Json::Value& args) -> Result<Json::Value> {
             auto agentId = argUuid(args, "agent_id");
             if (!agentId.ok()) return agentId.error();
-            auto agentOpt = tc.app.agents->get(agentId.value());
+            auto agentOpt = tc.app.identity->getProfile(agentId.value());
             if (!agentOpt) return RpcError::notFound("Agent", agentId.value());
 
             Json::Value orgsArr(Json::arrayValue);
-            for (const auto& m : tc.app.orgs->listOrgsOfAgent(agentId.value())) {
+            for (const auto& m : tc.app.identity->listOrgsOfAgent(agentId.value())) {
                 auto orgOpt = tc.app.orgs->get(m.org_id);
                 Json::Value item;
                 item["org_id"] = m.org_id;

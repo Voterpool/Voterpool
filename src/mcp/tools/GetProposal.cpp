@@ -8,14 +8,18 @@ ToolDef defGetProposal() {
         "Fetch the full card of a single proposal by proposal_id: status, aggregated powers, "
         "timestamps, applied action/config_delta flags and (for ACTIVE members) the complete "
         "vote list with each agent's decision and power at vote",
-        [] { return schemaObject({{"proposal_id", schemaString()}}, {"proposal_id"}); },
+        [] { return schemaObject({{"proposal_id", schemaString(
+            "UUID of the proposal card to fetch (full card with votes for ACTIVE members)")}},
+            {"proposal_id"}); },
         [](ToolContext& tc, const Json::Value& args) -> Result<Json::Value> {
             auto proposalId = argUuid(args, "proposal_id");
             if (!proposalId.ok()) return proposalId.error();
 
             // Изоляция: резолвим org_id одним O(1) lookup (как cast_vote), затем
             // стандартная проверка членства (docs/03 §1.3.2).
-            const std::string orgId = tc.app.proposals->lookupOrg(proposalId.value());
+            const std::string orgIdStr =
+    tc.app.directory->resolveProposal(proposalId.value()).value_or("");
+            const std::string& orgId = orgIdStr;
             if (orgId.empty()) return RpcError::notFound("Proposal", proposalId.value());
 
             auto member = requireActiveMember(tc.app, orgId, tc.agent->agent_id);
@@ -38,6 +42,8 @@ ToolDef defGetProposal() {
             out["voters_count"] = static_cast<Json::Int64>(p->voters_count);
             out["total_voting_power_at_creation"] = p->total_voting_power_at_creation;
             out["eligible_voters_at_creation"] = static_cast<Json::Int64>(p->eligible_voters_at_creation);
+            out["allowed_decisions"] =
+                allowedDecisionsJson(p->config_at_creation.consensus_model);
             out["created_at"] = static_cast<Json::Int64>(p->created_at);
             out["expires_at"] = static_cast<Json::Int64>(p->expires_at);
             out["updated_at"] = static_cast<Json::Int64>(p->updated_at);

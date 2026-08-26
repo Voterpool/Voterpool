@@ -4,6 +4,7 @@
 #include "consensus/ProposalLock.h"
 #include "core/IClock.h"
 #include "core/Metrics.h"
+#include "server/ProposalWaitRegistry.h"
 #include "storage/Keys.h"
 #include "storage/OrgNameRegistry.h"
 #include "storage/RocksDBWrapper.h"
@@ -320,6 +321,7 @@ Result<VoteReceipt> ConsensusEngine::castVote(const std::string& agentId, const 
     }
     if (closed.closed) {
         emitClosed(p, closed);
+        if (d_.waits) d_.waits->notifyClosed(proposalId);
         d_.locks->forget(proposalId);
     }
 
@@ -338,16 +340,18 @@ bool ConsensusEngine::closeProposalByTimer(const std::string& orgId, const std::
     auto pOpt = d_.proposals->get(orgId, proposalId);
     rocksdb::WriteBatch batch;
     if (!pOpt) {
-        std::string prefix = Keys::activeProposalPrefix();
+        // Зачистка «хвостов» индекса: предложение неизвестно, бакет тоже —
+        // обходим все K префиксов (docs/16 §3.2, мульти-бакетный скан).
         std::vector<std::string> stale;
         {
             auto it = d_.db->newIterator("cf_indexes");
-            for (it->Seek(prefix + std::string(19, '0') + ":" + proposalId); it->Valid(); it->Next()) {
-                std::string k = it->key().ToString();
-                if (k.rfind(prefix, 0) != 0 || k.size() <= prefix.size() + 20 ||
-                    k.substr(prefix.size() + 20) != proposalId)
-                    break;
-                stale.push_back(k);
+            for (int b = 0; b < Keys::kBucketCount; ++b) {
+                const std::string seek = Keys::activeProposalEntryIn(b, proposalId);
+                for (it->Seek(seek); it->Valid(); it->Next()) {
+                    std::string k = it->key().ToString();
+                    if (k.rfind(seek, 0) != 0) break;
+                    stale.push_back(std::move(k));
+                }
             }
         }
         for (const auto& k : stale) d_.db->remove(batch, "cf_indexes", k);
@@ -382,6 +386,7 @@ bool ConsensusEngine::closeProposalByTimer(const std::string& orgId, const std::
         MetricsRegistry::instance().incCounter("voterpool_proposals_closed_total", {{"final_status", toString(info.status)}});
         MetricsRegistry::instance().setGauge("voterpool_proposals_active", {}, d_.proposals->countActiveGauge());
         emitClosed(p, info);
+        if (d_.waits) d_.waits->notifyClosed(proposalId);
     }
     return true;
 }
@@ -393,19 +398,38 @@ void ConsensusEngine::closeExpired(std::int64_t nowSec, size_t maxBatch) {
     };
     std::vector<Item> expired;
     {
+        // Мульти-бакетный скан: собираем истёкшие из всех K префиксов,
+        // затем глобальный порядок по времени истечения (внутри бакета
+        // порядок локален). Необработанный остаток забирает следующий тик.
         auto it = d_.db->newIterator("cf_indexes");
-        const std::string prefix = Keys::activeProposalPrefix();
-        for (it->Seek(prefix); it->Valid() && expired.size() < maxBatch; it->Next()) {
-            std::string k = it->key().ToString();
-            if (k.rfind(prefix, 0) != 0) break;
-            std::int64_t exp = 0;
-            try {
-                exp = std::stoll(k.substr(prefix.size(), 19));
-            } catch (...) {
-                continue;
+        struct Entry {
+            std::int64_t exp;
+            std::string proposalId;
+            std::string orgId;
+            std::string key;
+        };
+        std::vector<Entry> candidates;
+        for (int b = 0; b < Keys::kBucketCount; ++b) {
+            const std::string prefix = Keys::activeProposalPrefixIn(b);
+            for (it->Seek(prefix); it->Valid(); it->Next()) {
+                std::string k = it->key().ToString();
+                if (k.rfind(prefix, 0) != 0) break;
+                std::int64_t exp = 0;
+                try {
+                    exp = std::stoll(k.substr(prefix.size(), 19));
+                } catch (...) {
+                    continue;
+                }
+                if (exp > nowSec) break;
+                candidates.push_back(
+                    {exp, k.substr(prefix.size() + 20), it->value().ToString(), std::move(k)});
             }
-            if (exp > nowSec) break;
-            expired.push_back({k.substr(prefix.size() + 20), it->value().ToString()});
+        }
+        std::sort(candidates.begin(), candidates.end(),
+                  [](const Entry& a, const Entry& c) { return a.exp < c.exp; });
+        for (auto& e : candidates) {
+            if (expired.size() >= maxBatch) break;
+            expired.push_back({std::move(e.proposalId), std::move(e.orgId)});
         }
     }
     for (const auto& item : expired) {
@@ -479,6 +503,7 @@ Result<DissolveOutcome> ConsensusEngine::dissolveOrganization(const std::string&
 
             for (const auto& id : closedIds) {
                 d_.locks->forget(id);
+                if (d_.waits) d_.waits->notifyClosed(id);
                 MetricsRegistry::instance().incCounter("voterpool_proposals_closed_total",
                                                        {{"final_status", "EXPIRED"}});
             }
@@ -522,6 +547,7 @@ Result<DissolveOutcome> ConsensusEngine::dissolveOrganization(const std::string&
         if (!d_.db->commit(batch)) break;  // TTL-воркер доработает остаток
         for (const auto& id : closedIds) {
             d_.locks->forget(id);
+            if (d_.waits) d_.waits->notifyClosed(id);
             MetricsRegistry::instance().incCounter("voterpool_proposals_closed_total",
                                                    {{"final_status", "EXPIRED"}});
         }

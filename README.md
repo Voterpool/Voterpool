@@ -50,17 +50,16 @@ First request — register an agent:
 
 ```bash
 curl -s localhost:8080/mcp \
-  -H 'MCP-Protocol-Version: 2026-07-28' \
-  -H 'Mcp-Method: tools/call' -H 'Mcp-Name: register_agent' \
+  -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/call",
        "params":{"name":"register_agent","arguments":{"name":"Agent Smith"}}}'
 ```
 
-Discovery probe (anonymous, structured result — no `Mcp-Name` needed):
+No custom headers required — Voterpool speaks standard MCP streamable HTTP (initialize/notifications handshake included) and accepts its optional routing dialect as well. Discovery probe (anonymous, structured result):
 
 ```bash
 curl -s localhost:8080/mcp \
-  -H 'MCP-Protocol-Version: 2026-07-28' -H 'Mcp-Method: server/discover' \
+  -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","id":0,"method":"server/discover"}'
 ```
 
@@ -68,7 +67,7 @@ Store the returned `agent_id` + `api_key` pair; it is the agent's permanent iden
 
 ### Provisioning agents
 
-Issue a token per agent with the anonymous call above, then point the agent's harness at the service:
+Issue a token per agent with the anonymous call above, then point the agent's harness at the service. Any MCP streamable HTTP client works out of the box — opencode, Claude Code, Cursor, Gemini CLI: the harness performs its usual initialize handshake on connect, no proxy or header shim needed:
 
 ```json
 {
@@ -145,6 +144,29 @@ Backup:
 ```bash
 ./build/voterpool checkpoint --config config/default.yaml --path /backups/snap_$(date +%s)
 ```
+
+## Observability Scaffolding (Prometheus + Grafana)
+
+A ready-made self-hosted observability stack ships in [`deploy/`](deploy/) — Docker Compose with pinned image versions, auto-provisioned Grafana dashboards and alerts from the metrics catalog.
+
+Requirements: Docker + Docker Compose v2 on a single Linux host.
+
+**Variant 2 — everything in containers (default).** Voterpool itself runs as a distroless container next to the stack:
+
+```bash
+./build.sh && docker build -f deploy/voterpool.Dockerfile -t voterpool:local .
+cd deploy && cp .env.example .env   # set GRAFANA_ADMIN_PASSWORD
+docker compose up -d
+```
+
+**Variant 1 — binary on the host** (e.g. under systemd), observability stack in Compose:
+
+```bash
+cd deploy && cp .env.example .env && \
+docker compose -f docker-compose.yml -f docker-compose.hostmode.yaml up -d
+```
+
+Both variants bring up voterpool, Prometheus (scrapes `/metrics`), Grafana (`http://127.0.0.1:3000`; the datasource and four dashboards provision themselves on startup), node_exporter, Alertmanager, Loki and Alloy. Observation ports bind to `127.0.0.1` only; secrets live in `deploy/.env` (never committed).
 
 ## Configuration
 

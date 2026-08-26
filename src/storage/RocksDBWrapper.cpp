@@ -1,5 +1,7 @@
 #include "storage/RocksDBWrapper.h"
 
+#include "scaling/BucketResolver.h"
+
 #include "core/Metrics.h"
 
 #include <rocksdb/statistics.h>
@@ -196,4 +198,23 @@ bool RocksDBWrapper::flushSync() {
     return true;
 }
 
+
+void RocksDBWrapper::publishBucketHistogram() {
+    if (!isOpen()) return;
+    std::vector<std::int64_t> counts(scaling::kBucketCount, 0);
+    auto it = newIterator("cf_organizations");
+    for (it->SeekToFirst(); it->Valid(); it->Next()) {
+        // Ключ организации v2: b{NNN}:org:{id} — бакет из первых 4 символов.
+        const std::string k = it->key().ToString();
+        if (k.size() > 5 && k[0] == 'b' && k[4] == ':') {
+            const int bucket = std::stoi(k.substr(1, 3));
+            ++counts[bucket];
+        }
+    }
+    auto& m = MetricsRegistry::instance();
+    for (int b = 0; b < scaling::kBucketCount; ++b) {
+        m.setGauge("voterpool_bucket_records",
+                   {{"bucket", scaling::bucketPrefix(b).substr(0, 4)}}, counts[b]);
+    }
+}
 }  // namespace voterpool

@@ -9,12 +9,15 @@ ToolDef defSearchOrganizations() {
         "search_organizations",
         "Search and feed of ACTIVE organizations: by name substring, tags (AND), category, with cursor pagination",
         [] {
-            return schemaObject({{"query", schemaString()},
-                                 {"tags", schemaArrayOf("string")},
-                                 {"category", schemaString()},
-                                 {"type", schemaString()},
-                                 {"cursor", schemaString()},
-                                 {"limit", schemaInteger()}},
+            return schemaObject({{"query", schemaString(
+                "Case-insensitive substring of the organization name, e.g. \"governance lab\"")},
+                                 {"tags", schemaArrayOf("string",
+                     "Keywords AND-combined; matching is case-sensitive-normalized to lowercase at creation")},
+                                 {"category", schemaString("Category keyword filter")},
+                                 {"type", schemaEnumOf({"OPEN", "CLOSED"},
+                     "Case-sensitive filter by join policy")},
+                                 {"cursor", schemaString("Opaque next_cursor from the previous page; do not construct manually")},
+                                 {"limit", schemaInteger("Page size in [1;100], default 50")}},
                                 {});
         },
         [](ToolContext& tc, const Json::Value& args) -> Result<Json::Value> {
@@ -55,11 +58,11 @@ ToolDef defSearchOrganizations() {
             std::set<std::string> candidates;
             bool haveCandidateSet = false;
             if (!query.empty()) {
-                candidates = tc.app.orgNames->matchQuery(query);
+                candidates = tc.app.directory->matchName(query);
                 haveCandidateSet = true;
             }
             for (const auto& t : tags) {
-                auto s = tc.app.indexes->scanTag(t);
+                auto s = tc.app.directory->scanTag(t);
                 if (haveCandidateSet) {
                     std::set<std::string> inter;
                     for (const auto& id : s) {
@@ -72,7 +75,7 @@ ToolDef defSearchOrganizations() {
                 }
             }
             if (!category.empty()) {
-                auto s = tc.app.indexes->scanCategory(category);
+                auto s = tc.app.directory->scanCategory(category);
                 if (haveCandidateSet) {
                     std::set<std::string> inter;
                     for (const auto& id : s) {
@@ -103,7 +106,7 @@ ToolDef defSearchOrganizations() {
 
             Json::Value items(Json::arrayValue);
             std::string nextCursor;
-            for (const auto& orgId : tc.app.indexes->scanFeedActive()) {
+            for (const auto& orgId : tc.app.directory->scanFeedActive()) {
                 if (cursorRev >= 0) {
                     auto orgOpt = tc.app.orgs->get(orgId);
                     std::int64_t rev = orgOpt ? Keys::reverseTs(orgOpt->created_at) : -1;

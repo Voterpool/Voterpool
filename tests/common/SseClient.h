@@ -12,7 +12,8 @@ public:
         std::string data;
     };
 
-    SseClient(const std::string& host, int port, const std::string& token, int timeoutMs = 5000);
+    SseClient(const std::string& host, int port, const std::string& token, int timeoutMs = 5000,
+              const std::string& path = "/mcp/events");
     ~SseClient();
 
     SseClient(const SseClient&) = delete;

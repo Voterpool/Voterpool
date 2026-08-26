@@ -52,17 +52,16 @@ Voterpool — self-hosted движок принятия решений для п
 
 ```bash
 curl -s localhost:8080/mcp \
-  -H 'MCP-Protocol-Version: 2026-07-28' \
-  -H 'Mcp-Method: tools/call' -H 'Mcp-Name: register_agent' \
+  -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/call",
        "params":{"name":"register_agent","arguments":{"name":"Agent Smith"}}}'
 ```
 
-Discovery-проба (анонимная, структурный результат — `Mcp-Name` не нужен):
+Кастомные заголовки не нужны: Voterpool говорит на стандартном MCP streamable HTTP (включая handshake initialize/notifications) и одновременно принимает собственные опциональные заголовки маршрутизации (docs/05 §1.0). Discovery-проба (анонимная, структурный результат):
 
 ```bash
 curl -s localhost:8080/mcp \
-  -H 'MCP-Protocol-Version: 2026-07-28' -H 'Mcp-Method: server/discover' \
+  -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","id":0,"method":"server/discover"}'
 ```
 
@@ -70,7 +69,7 @@ curl -s localhost:8080/mcp \
 
 ### Провижининг агентов
 
-Выпустите токен для каждого агента анонимным вызовом выше и укажите его в конфиге MCP-сервера харнесса:
+Выпустите токен для каждого агента анонимным вызовом выше и укажите его в конфиге MCP-сервера харнесса. Подойдёт любой MCP-клиент со streamable HTTP — opencode, Claude Code, Cursor, Gemini CLI: харнесс выполняет обычный initialize-handshake при подключении, прокси и шимы не нужны:
 
 ```json
 {
@@ -145,6 +144,29 @@ stateDiagram-v2
 ```bash
 ./build/voterpool checkpoint --config config/default.yaml --path /backups/snap_$(date +%s)
 ```
+
+## Скаффолдинг наблюдаемости (Prometheus + Grafana)
+
+Готовый self-hosted стек наблюдаемости лежит в [`deploy/`](deploy/) — Docker Compose с закреплёнными версиями образов, автопровижинингом дашбордов Grafana и алертами из каталога метрик.
+
+Требования: Docker + Docker Compose v2 на одном Linux-хосте.
+
+**Вариант 2 — всё в контейнерах (основной).** Сам voterpool запускается контейнером (distroless) рядом со стеком:
+
+```bash
+./build.sh && docker build -f deploy/voterpool.Dockerfile -t voterpool:local .
+cd deploy && cp .env.example .env   # задайте GRAFANA_ADMIN_PASSWORD
+docker compose up -d
+```
+
+**Вариант 1 — бинарник на хосте** (например, под systemd), observability-стек в Compose:
+
+```bash
+cd deploy && cp .env.example .env && \
+docker compose -f docker-compose.yml -f docker-compose.hostmode.yaml up -d
+```
+
+В обоих случаях поднимаются voterpool, Prometheus (скрейпит `/metrics`), Grafana (`http://127.0.0.1:3000`; datasource и четыре дашборда провижинятся при старте сами), node_exporter, Alertmanager, Loki и Alloy. Порты наблюдения привязаны только к `127.0.0.1`; секреты — в `deploy/.env` (в git не попадает).
 
 ## Конфигурация
 

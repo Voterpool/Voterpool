@@ -1,7 +1,7 @@
 #include "server/Workers.h"
 
 #include "core/Metrics.h"
-#include "server/SseHub.h"
+#include "scaling/IEventBus.h"
 
 #include <concurrentqueue.h>
 
@@ -14,8 +14,8 @@ public:
     moodycamel::ConcurrentQueue<SseEvent> q;
 };
 
-Workers::Workers(const AppConfig& cfg, IClock& clock, SseHub& hub, std::function<void(std::int64_t)> ttlTick)
-    : cfg_(cfg), clock_(clock), hub_(hub), ttlTick_(std::move(ttlTick)), queue_(std::make_unique<QueueImpl>()) {}
+Workers::Workers(const AppConfig& cfg, IClock& clock, scaling::IEventBus& bus, std::function<void(std::int64_t)> ttlTick)
+    : cfg_(cfg), clock_(clock), bus_(bus), ttlTick_(std::move(ttlTick)), queue_(std::make_unique<QueueImpl>()) {}
 
 Workers::~Workers() { stop(); }
 
@@ -31,7 +31,7 @@ void Workers::start() {
             elapsedMs += 100;
             if (elapsedMs >= cfg_.sse.heartbeat_interval_sec * 1000) {
                 elapsedMs = 0;
-                hub_.heartbeat();
+                bus_.heartbeat();
             }
         }
     });
@@ -89,7 +89,7 @@ void Workers::dispatcherLoop(std::stop_token st) {
             cv_.wait_for(lock, std::chrono::milliseconds(50));
             continue;
         }
-        for (auto& ev : batch) hub_.deliver(ev);
+        for (auto& ev : batch) bus_.deliver(ev);
         queueDepth_.fetch_sub(batch.size(), std::memory_order_relaxed);
         MetricsRegistry::instance().setGauge("voterpool_sse_queue_depth", {},
                                              static_cast<std::int64_t>(queueDepth_.load()));
@@ -97,7 +97,7 @@ void Workers::dispatcherLoop(std::stop_token st) {
     }
     SseEvent ev;
     while (queue_->q.try_dequeue(ev)) {
-        hub_.deliver(ev);
+        bus_.deliver(ev);
         queueDepth_.fetch_sub(1, std::memory_order_relaxed);
     }
 }

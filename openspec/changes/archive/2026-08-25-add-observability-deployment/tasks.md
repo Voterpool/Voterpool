@@ -14,7 +14,7 @@
 
 ## 4. Prometheus и алерты
 
-- [x] 4.1 Создать `deploy/prometheus/prometheus.yml`: scrape_configs для voterpool (мода B: `voterpool:8080`; интервал 15s) и node_exporter, флаги retention time=15d/size=5GB вынесены в command compose-сервиса. Verify: `promtool check config` чист.
+- [x] 4.1 Создать `deploy/prometheus/prometheus.yml`: scrape_configs для voterpool (вариант 2: `voterpool:8080`; интервал 15s) и node_exporter, флаги retention time=15d/size=5GB вынесены в command compose-сервиса. Verify: `promtool check config` чист.
 - [x] 4.2 Создать `deploy/prometheus/alerts/voterpool.rules.yml` с шестью алертами design D5 (пороги, for, severity как в таблице) плюс алерт заполнения диска node_exporter (>85%). Verify: `promtool check rules` чист; правила загружены (`/-/rules` содержит 7 групп).
 
 ## 5. Провижининг Grafana
@@ -30,7 +30,7 @@
 - [x] 6.1 Создать `deploy/loki/loki-config.yml`: filesystem backend, retention 30d, compactor включён. Verify: `loki -config.file=... -verify-config` проходит.
 - [ ] 6.2 Создать `deploy/alloy/config.alloy`: discovery.docker, loki.source.docker (socket read-only), loki.process со stage.regex формата spdlog `[ts] [level] [thread] msg` → label level; лейблы только job/container/level. Verify: после старта записи voterpool видны в Grafana Explore с label level; agent_id присутствует в теле, отсутствует среди лейблов.
 
-## 7. Alertmanager и мода A
+## 7. Alertmanager и вариант 1
 
 - [ ] 7.1 Создать `deploy/alertmanager/alertmanager.yml` с маршрутом по severity и ресиверами-плейсхолдерами; подключить к Prometheus (alerting + rule_files). Verify: алерт VoterpoolStorageDegraded вручную смоделированный доходит до alertmanager API.
 - [ ] 7.2 Создать `deploy/docker-compose.hostmode.yaml`: исключение сервиса voterpool, scrape-цель `host.docker.internal:8080`, `extra_hosts: host.docker.internal:host-gateway`. Verify: `docker compose -f docker-compose.yml -f docker-compose.hostmode.yaml config` валиден; при voterpool на хосте цель UP.
@@ -44,8 +44,8 @@
 
 > **STATUS: Change заархивирован с незавершёнными runtime-проверками** (среда без Docker-демона).
 > Все артефакты стека записаны и статически верифицированы (promtool 3.14.0: config+rules SUCCESS;
-> loki 3.7.6 -verify-config: valid; docker compose v2.39.2 config: обе моды валидны; JSON-дашборды распарсены).
+> loki 3.7.6 -verify-config: valid; docker compose v2.39.2 config: оба варианта валидны; JSON-дашборды распарсены).
 > Ниже — чек-лист для выполнения на хосте с Docker; после прогона отметить задачи.
 
-- [ ] 9.1 Полный прогон сценария спеки моды B на чистом окружении: `./build.sh && docker build ... && cd deploy && cp .env.example .env && docker compose up -d`; проверить: все сервисы healthy; первый скрейп содержит семейства каталога docs/11 §3; grafana datasource проходит проверку соединения; порты 3000/9090/9093/3100 отвечают только на 127.0.0.1. Verify: чек-лист сценария пройден полностью, отклонения зафиксированы.
+- [ ] 9.1 Полный прогон сценария спеки варианта 2 на чистом окружении: `./build.sh && docker build ... && cd deploy && cp .env.example .env && docker compose up -d`; проверить: все сервисы healthy; первый скрейп содержит семейства каталога docs/11 §3; grafana datasource проходит проверку соединения; порты 3000/9090/9093/3100 отвечают только на 127.0.0.1. Verify: чек-лист сценария пройден полностью, отклонения зафиксированы.
 - [ ] 9.2 Проверить персистентность: час работы со скрейпами → `docker compose down && up -d` → история метрик и настройки Grafana доступны; затем `docker compose down -v` возвращает чистое состояние. Verify: данные пережили рестарт, удаление томов работает.

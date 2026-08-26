@@ -1,0 +1,75 @@
+[2026-08-25 08:58:16.972] [info] Loaded organization name registry: 0 entries
+{
+	"cast_vote_duplicate" : 
+	{
+		"p50_ns" : 30958.0,
+		"p99_ns" : 97041.0
+	},
+	"get_agent" : 
+	{
+		"p50_ns" : 20958.0,
+		"p99_ns" : 67500.0
+	},
+	"get_proposal" : 
+	{
+		"p50_ns" : 25708.0,
+		"p99_ns" : 77916.0
+	},
+	"iterations" : 5000,
+	"label" : "baseline",
+	"search_organizations" : 
+	{
+		"p50_ns" : 26375.0,
+		"p99_ns" : 79583.0
+	}
+}
+[2026-08-25 08:58:17.661] [info] Loaded organization name registry: 0 entries
+{
+	"cast_vote_duplicate" : 
+	{
+		"p50_ns" : 31625.0,
+		"p99_ns" : 99250.0
+	},
+	"get_agent" : 
+	{
+		"p50_ns" : 20834.0,
+		"p99_ns" : 62916.0
+	},
+	"get_proposal" : 
+	{
+		"p50_ns" : 25666.0,
+		"p99_ns" : 77958.0
+	},
+	"iterations" : 5000,
+	"label" : "baseline",
+	"search_organizations" : 
+	{
+		"p50_ns" : 26291.0,
+		"p99_ns" : 79833.0
+	}
+}
+[2026-08-25 08:58:18.370] [info] Loaded organization name registry: 0 entries
+{
+	"cast_vote_duplicate" : 
+	{
+		"p50_ns" : 29584.0,
+		"p99_ns" : 71208.0
+	},
+	"get_agent" : 
+	{
+		"p50_ns" : 19999.0,
+		"p99_ns" : 47167.0
+	},
+	"get_proposal" : 
+	{
+		"p50_ns" : 24334.0,
+		"p99_ns" : 58333.0
+	},
+	"iterations" : 5000,
+	"label" : "baseline",
+	"search_organizations" : 
+	{
+		"p50_ns" : 24999.0,
+		"p99_ns" : 58125.0
+	}
+}

@@ -47,11 +47,11 @@ std::vector<Proposal> ProposalRepository::listByOrg(const std::string& orgId) {
 }
 
 void ProposalRepository::addActiveIndex(rocksdb::WriteBatch& batch, const Proposal& p) {
-    db_.put(batch, "cf_indexes", Keys::activeProposal(p.expires_at, p.proposal_id), p.org_id);
+    db_.put(batch, "cf_indexes", Keys::activeProposal(p.org_id, p.expires_at, p.proposal_id), p.org_id);
 }
 
 void ProposalRepository::removeActiveIndex(rocksdb::WriteBatch& batch, const Proposal& p) {
-    db_.remove(batch, "cf_indexes", Keys::activeProposal(p.expires_at, p.proposal_id));
+    db_.remove(batch, "cf_indexes", Keys::activeProposal(p.org_id, p.expires_at, p.proposal_id));
 }
 
 void ProposalRepository::addLookup(rocksdb::WriteBatch& batch, const Proposal& p) {

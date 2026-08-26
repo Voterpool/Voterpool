@@ -12,14 +12,13 @@ ToolDef defCastVote() {
         "cast_vote",
         "Cast a vote (YES | NO | ABSTAIN) on an active proposal; decision must be allowed by the org consensus model",
         [] {
-            Json::Value decision;
-            Json::Value variants(Json::arrayValue);
-            variants.append("YES");
-            variants.append("NO");
-            variants.append("ABSTAIN");
-            decision["type"] = "string";
-            decision["enum"] = std::move(variants);
-            return schemaObject({{"proposal_id", schemaString()}, {"decision", std::move(decision)}},
+            Json::Value decision = schemaEnumOf({"YES", "NO", "ABSTAIN"},
+                "Case-sensitive UPPER_CASE. Which decisions are accepted depends on the org "
+                "consensus model: MAJORITY and QUORUM_PERCENTAGE accept YES|NO only; CONSENT "
+                "accepts YES|NO|ABSTAIN. Wrong decision -> -32005 with data.allowed");
+            return schemaObject({{"proposal_id", schemaString(
+                "UUID of an ACTIVE proposal you may vote on (from get_proposals)")},
+                                 {"decision", std::move(decision)}},
                                 {"proposal_id", "decision"});
         },
         [](ToolContext& tc, const Json::Value& args) -> Result<Json::Value> {
@@ -60,7 +59,9 @@ ToolDef defListMembers() {
     return ToolDef{
         "list_members",
         "List ACTIVE members of an organization with roles and voting power",
-        [] { return schemaObject({{"org_id", schemaString()}}, {"org_id"}); },
+        [] { return schemaObject({{"org_id", schemaString(
+            "UUID of the organization whose ACTIVE members to list")}},
+            {"org_id"}); },
         [](ToolContext& tc, const Json::Value& args) -> Result<Json::Value> {
             auto orgId = argUuid(args, "org_id");
             if (!orgId.ok()) return orgId.error();

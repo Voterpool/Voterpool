@@ -26,6 +26,8 @@ VCPKG_DIR="${VCPKG_ROOT:-}"
 WITH_TESTS="auto"       # auto | yes | no  (auto = ON)
 RUN_TESTS=0
 ASSUME_YES=0
+NONINTERACTIVE=0
+NO_SWAP=0
 DO_CLEAN=0
 
 DROGON_TAG="v1.9.6"
@@ -54,10 +56,19 @@ Usage: ./build.sh [options]
   --vcpkg [PATH]          Build dependencies via vcpkg (manifest mode);
                           PATH is the vcpkg directory (otherwise $VCPKG_ROOT or a fresh clone)
   --install-deps yes|no|auto  Control package installation (default: auto)
+  --no-swap              Never create temporary swap (disable low-memory protection)
   --clean                 Remove the build directory first
   -y, --yes               Non-interactive mode (CI); answer yes to everything
   -h, --help              This help
 EOF
+}
+
+suggest_option() {
+  local cand="${1#-}"; cand="${cand#-}"
+  case "$cand" in
+    debug|jobs|tests|no-tests|run-tests|system-deps|vcpkg|install-deps|clean|yes|help)
+      printf " (did you mean --%s?)" "$cand" ;;
+  esac
 }
 
 while [ $# -gt 0 ]; do
@@ -73,10 +84,11 @@ while [ $# -gt 0 ]; do
       if [ "${2:-}" != "" ] && [ "${2:0:1}" != "-" ]; then VCPKG_DIR="$2"; shift; fi
       ;;
     --install-deps) INSTALL_DEPS="${2:?need value}"; shift ;;
+    --no-swap) NO_SWAP=1 ;;
     --clean) DO_CLEAN=1 ;;
     -y|--yes) ASSUME_YES=1; NONINTERACTIVE=1 ;;
     -h|--help) usage; exit 0 ;;
-    *) err "Unknown option: $1"; usage; exit 1 ;;
+    *) err "Unknown option: $1$(suggest_option "$1")"; usage; exit 1 ;;
   esac
   shift
 done
@@ -84,7 +96,10 @@ done
 ask() {
   local q="$1" def="${2:-Y}" ans
   if [ "$NONINTERACTIVE" = "1" ]; then REPLY="$def"; return 0; fi
-  read -r -p "$q [$def]: " ans </dev/tty
+  if ! read -r -p "$q [$def]: " ans </dev/tty; then
+    err "Interactive input unavailable (no terminal); rerun with --yes."
+    exit 1
+  fi
   REPLY="${ans:-$def}"
   return 0
 }
@@ -92,7 +107,7 @@ ask() {
 confirm() { local def="$2"; ask "$1" "$def"; [[ "$REPLY" =~ ^([Yy]) ]]; }
 
 have() { command -v "$1" >/dev/null 2>&1; }
-sudo_cmd() { if [ "$(id -u)" -eq 0 ]; then ""; else have sudo && echo sudo || echo ""; fi; }
+sudo_cmd() { if [ "$(id -u)" -eq 0 ]; then echo ""; elif have sudo; then echo sudo; fi; }
 
 detect_pm() {
   for pm in apt-get dnf yum pacman zypper apk; do
@@ -108,6 +123,104 @@ if [ -r /etc/os-release ]; then
 fi
 
 PM="$(detect_pm)"
+
+distro_min_version_met() {
+  case "$OS_ID" in
+    debian) local min=12 ;;
+    ubuntu) local min=22 ;;
+    *) return 0 ;;
+  esac
+  local major="${OS_VER%%.*}"
+  case "$major" in ''|*[!0-9]*) return 0 ;; esac
+  [ "$major" -ge "$min" ]
+}
+
+LOW_MEM_THRESHOLD_MB=1800   # below this, compiling drogon at -O3 risks OOM-kill
+SWAP_SIZE_MB=2048
+SWAP_FILE="$DEPS_PREFIX/vp-build-swap"
+VP_SWAP_PATH=""             # set while our temporary swap is active
+
+meminfo_field_mb() { # <field> [file]
+  awk -v f="$1" '$1 == f":" { print int($2/1024); exit }' "${2:-/proc/meminfo}" 2>/dev/null
+  return 0
+}
+mem_available_mb() { meminfo_field_mb MemAvailable "$@"; }
+swap_total_mb()   { meminfo_field_mb SwapTotal "$@"; }
+
+cap_jobs_by_memory() {
+  local avail; avail="$(mem_available_mb)"
+  if [ -n "$avail" ]; then
+    local cap=$(( avail / 1100 ))
+    if [ "$cap" -lt 1 ]; then cap=1; fi
+    if [ "$JOBS" -gt "$cap" ]; then
+      warn "Low memory (${avail} MB available): reducing build jobs $JOBS -> $cap."
+      JOBS="$cap"
+    fi
+  fi
+  return 0
+}
+
+create_temp_swap() {
+  local avail="${1:-unknown}"
+  local s; s="$(sudo_cmd)"
+  if [ -e "$SWAP_FILE" ]; then
+    warn "Removing stale swap file from a previous run..."
+    $s swapoff "$SWAP_FILE" 2>/dev/null || true
+    $s rm -f "$SWAP_FILE"
+  fi
+  log "Low memory (${avail} MB available): creating ${SWAP_SIZE_MB} MB temporary swap at $SWAP_FILE ..."
+  mkdir -p "$(dirname "$SWAP_FILE")"
+  if ! $s fallocate -l "${SWAP_SIZE_MB}M" "$SWAP_FILE" 2>/dev/null; then
+    if ! $s dd if=/dev/zero of="$SWAP_FILE" bs=1M count="$SWAP_SIZE_MB" status=none; then
+      warn "Could not allocate swap file; continuing without extra swap."
+      return 1
+    fi
+  fi
+  $s chmod 600 "$SWAP_FILE"
+  if ! $s mkswap "$SWAP_FILE" >/dev/null 2>&1; then
+    warn "mkswap failed; continuing without extra swap."
+    $s rm -f "$SWAP_FILE"
+    return 1
+  fi
+  if ! $s swapon "$SWAP_FILE" 2>/dev/null; then
+    warn "swapon failed (unprivileged container?); continuing without extra swap."
+    $s rm -f "$SWAP_FILE"
+    return 1
+  fi
+  VP_SWAP_PATH="$SWAP_FILE"
+  ok "Temporary swap enabled; it will be removed when the script exits."
+}
+
+cleanup_temp_swap() {
+  if [ -n "$VP_SWAP_PATH" ]; then
+    local s; s="$(sudo_cmd)"
+    $s swapoff "$VP_SWAP_PATH" 2>/dev/null || true
+    $s rm -f "$VP_SWAP_PATH"
+    VP_SWAP_PATH=""
+  fi
+  return 0
+}
+trap cleanup_temp_swap EXIT
+
+ensure_build_memory() {
+  local avail swap
+  avail="$(mem_available_mb)"
+  swap="$(swap_total_mb)"
+  if [ -n "$avail" ] && [ "$avail" -lt "$LOW_MEM_THRESHOLD_MB" ]; then
+    if [ -z "$swap" ] || [ "$swap" -lt 512 ]; then
+      if [ "$NO_SWAP" = "1" ]; then
+        warn "Low memory (${avail} MB available) but temporary swap is disabled by --no-swap."
+      elif confirm "Enable temporary ${SWAP_SIZE_MB} MB swap? The build may be OOM-killed without it." "Y"; then
+        create_temp_swap "$avail" || true
+      else
+        warn "Skipping temporary swap; the build may fail on low memory."
+      fi
+    else
+      log "Low memory (${avail} MB available), but ${swap} MB of swap is already active."
+    fi
+  fi
+  cap_jobs_by_memory
+}
 
 cmake_major_ok() {
   have cmake || return 1
@@ -176,6 +289,19 @@ pkgs_for_pm() {
   esac
 }
 
+pm_install() { # <packages...>
+  local pkgs="$1"
+  local s; s="$(sudo_cmd)"
+  case "$PM" in
+    apt-get)  $s apt-get update -y && $s env DEBIAN_FRONTEND=noninteractive apt-get install -y $pkgs ;;
+    dnf)      $s dnf install -y $pkgs ;;
+    yum)      $s yum install -y $pkgs ;;
+    pacman)   $s pacman -Sy --needed --noconfirm $pkgs ;;
+    zypper)   $s zypper --non-interactive install $pkgs ;;
+    apk)      $s apk add $pkgs ;;
+  esac
+}
+
 install_system_packages() {
   local pkgs; pkgs="$(pkgs_for_pm "$PM")"
   if [ -z "$pkgs" ]; then
@@ -183,15 +309,7 @@ install_system_packages() {
     return 1
   fi
   log "Distribution: $OS_ID ${OS_VER} (${PM}). Installing dependencies..."
-  local s; s="$(sudo_cmd)"
-  case "$PM" in
-    apt-get)  $s apt-get update -y && $s DEBIAN_FRONTEND=noninteractive apt-get install -y $pkgs ;;
-    dnf)      $s dnf install -y $pkgs ;;
-    yum)      $s yum install -y $pkgs ;;
-    pacman)   $s pacman -Sy --needed --noconfirm $pkgs ;;
-    zypper)   $s zypper --non-interactive install $pkgs ;;
-    apk)      $s apk add $pkgs ;;
-  esac
+  pm_install "$pkgs"
 }
 
 drogon_available() {
@@ -205,6 +323,7 @@ drogon_available() {
 }
 
 build_drogon_from_source() {
+  ensure_build_memory
   log "Building Drogon ${DROGON_TAG} from source into .deps ..."
   mkdir -p "$DEPS_PREFIX/src"
   if [ ! -d "$DEPS_PREFIX/src/drogon" ]; then
@@ -225,6 +344,18 @@ build_drogon_from_source() {
   ok "Drogon installed into $DEPS_PREFIX"
 }
 
+install_vcpkg_prereqs() {
+  local pkgs="curl zip unzip tar"   # required by vcpkg bootstrap on every supported PM
+  local need="" t
+  for t in $pkgs; do
+    if ! have "$t"; then need="$need $t"; fi
+  done
+  if [ -n "$need" ]; then
+    log "Installing vcpkg bootstrap prerequisites:$need"
+    pm_install "$need"
+  fi
+}
+
 ensure_vcpkg() {
   if [ -z "$VCPKG_DIR" ]; then
     VCPKG_DIR="$ROOT_DIR/vcpkg"
@@ -233,6 +364,7 @@ ensure_vcpkg() {
     log "Cloning vcpkg into $VCPKG_DIR ..."
     git clone https://github.com/microsoft/vcpkg "$VCPKG_DIR"
   fi
+  install_vcpkg_prereqs
   if [ ! -x "$VCPKG_DIR/vcpkg" ]; then
     log "Bootstrapping vcpkg (this may take a few minutes)..."
     "$VCPKG_DIR/bootstrap-vcpkg.sh" -disableMetrics
@@ -264,6 +396,11 @@ BANNER
     if [ "$INSTALL_DEPS" = "no" ]; then
       err "Install g++ (>=11) or clang++ (>=14) manually."; exit 1
     fi
+    if ! distro_min_version_met; then
+      err "$OS_ID ${OS_VER:-unknown}: distribution repositories cannot provide a C++20 toolchain."
+      err "Use Debian >= 12 or Ubuntu >= 22.04, or install g++ (>=11) / clang++ (>=14) manually."
+      exit 1
+    fi
     confirm "Install the toolchain via $PM?" "Y" || { err "Aborted."; exit 1; }
     install_system_packages || true
     compiler="$(pick_compiler)"
@@ -274,6 +411,11 @@ BANNER
   if ! cmake_major_ok; then
     if [ "$INSTALL_DEPS" = "no" ]; then
       err "cmake >= 3.20 is required."; exit 1
+    fi
+    if ! distro_min_version_met; then
+      err "$OS_ID ${OS_VER:-unknown}: distribution repositories cannot provide cmake >= 3.20."
+      err "Use Debian >= 12 or Ubuntu >= 22.04."
+      exit 1
     fi
     confirm "Upgrade cmake via $PM?" "Y" || { err "Aborted."; exit 1; }
     install_system_packages || true
@@ -333,6 +475,7 @@ BANNER
   log "Configuring CMake..."
   cmake "${cmake_args[@]}"
 
+  ensure_build_memory
   log "Building (-j $JOBS)..."
   cmake --build "$BUILD_DIR" -j "$JOBS"
 

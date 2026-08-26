@@ -205,3 +205,73 @@ TEST(Config, SslEnabledWithoutReadableCertOrKeyIsFatal) {
     fs::remove(cert);
     fs::remove(key);
 }
+
+TEST(Config, ClusterModeDefaultsToStandaloneAndRejectsUnknown) {
+    AppConfig c;
+    EXPECT_EQ(c.cluster.mode, "standalone");
+    EXPECT_NO_THROW(c.validate());
+
+    AppConfig bad;
+    bad.cluster.mode = "cluster";
+    try {
+        bad.validate();
+        FAIL() << "expected ConfigError for cluster.mode=cluster";
+    } catch (const ConfigError& e) {
+        EXPECT_NE(std::string(e.what()).find("cluster.mode"), std::string::npos);
+    }
+}
+
+TEST(Config, McpSupportedVersionsDefault) {
+    AppConfig c;
+    EXPECT_EQ(c.mcp.supported_versions,
+              (std::vector<std::string>{"2026-07-28", "2025-11-25", "2025-06-18", "2025-03-26"}));
+    EXPECT_NO_THROW(c.validate());
+}
+
+TEST(Config, McpSupportedVersionsParsesYamlAndCsvEnv) {
+    EnvGuard guard({"VOTERPOOL_MCP_SUPPORTED_VERSIONS"});
+    std::string p = writeCfg(
+        "mcp:\n"
+        "  protocol_version: \"2026-07-28\"\n"
+        "  supported_versions: [\"2026-07-28\", \"2025-06-18\"]\n");
+    char arg0[] = "voterpool";
+    char a1[] = "--config";
+    std::string cfg = p;
+    char* args[] = {arg0, a1, cfg.data()};
+
+    AppConfig fromYaml = AppConfig::load(3, args);
+    EXPECT_EQ(fromYaml.mcp.supported_versions,
+              (std::vector<std::string>{"2026-07-28", "2025-06-18"}));
+    EXPECT_NO_THROW(fromYaml.validate());
+
+    setenv("VOTERPOOL_MCP_SUPPORTED_VERSIONS", "2026-07-28, 2025-06-18 , 2025-03-26", 1);
+    AppConfig fromEnv = AppConfig::load(3, args);
+    EXPECT_EQ(fromEnv.mcp.supported_versions,
+              (std::vector<std::string>{"2026-07-28", "2025-06-18", "2025-03-26"}));
+    unsetenv("VOTERPOOL_MCP_SUPPORTED_VERSIONS");
+    fs::remove(p);
+}
+
+TEST(Config, McpSupportedVersionsValidationFailures) {
+    AppConfig empty;
+    empty.mcp.supported_versions.clear();
+    try {
+        empty.validate();
+        FAIL() << "expected ConfigError for empty supported_versions";
+    } catch (const ConfigError& e) {
+        EXPECT_NE(std::string(e.what()).find("supported_versions"), std::string::npos);
+    }
+
+    AppConfig missing;
+    missing.mcp.supported_versions = {"2025-06-18"};
+    try {
+        missing.validate();
+        FAIL() << "expected ConfigError when protocol_version not in supported_versions";
+    } catch (const ConfigError& e) {
+        EXPECT_NE(std::string(e.what()).find("supported_versions"), std::string::npos);
+    }
+
+    AppConfig blank;
+    blank.mcp.supported_versions = {"2026-07-28", ""};
+    EXPECT_THROW(blank.validate(), ConfigError);
+}

@@ -48,6 +48,8 @@ public:
 
     bool open();
     void close();
+
+    void publishBucketHistogram();
     bool isOpen() const { return db_ != nullptr; }
 
     void publishStatisticsToRegistry();

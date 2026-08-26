@@ -5,6 +5,7 @@
 #include "core/Config.h"
 #include "core/IClock.h"
 #include "server/AuthProvider.h"
+#include "server/ProposalWaitRegistry.h"
 #include "server/SseHub.h"
 #include "server/Workers.h"
 #include "storage/RocksDBWrapper.h"
@@ -15,6 +16,7 @@
 #include "storage/repositories/OrgRepository.h"
 #include "storage/repositories/ProposalRepository.h"
 #include "storage/repositories/VoteRepository.h"
+#include "scaling/local_impls.h"
 
 #include <memory>
 
@@ -31,9 +33,12 @@ struct AppContext {
     std::unique_ptr<IndexRepository> indexes;
     std::unique_ptr<AuditLogRepository> audit;
     std::unique_ptr<OrgNameRegistry> orgNames;
-    std::unique_ptr<IAuthProvider> authProvider;
+    std::unique_ptr<scaling::IDirectory> directory;
+    std::unique_ptr<scaling::IIdentity> identity;
+    std::unique_ptr<scaling::IEventBus> events;
     ProposalLockRegistry locks;
     KeyedMutexRegistry orgLocks;
+    ProposalWaitRegistry proposalWaits;
     std::unique_ptr<ConsensusEngine> engine;
     std::unique_ptr<SseHub> hub;
     std::unique_ptr<Workers> workers;

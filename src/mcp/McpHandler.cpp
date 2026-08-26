@@ -4,17 +4,110 @@
 #include "mcp/JsonRpcError.h"
 #include "mcp/RequestLog.h"
 #include "mcp/tools/ToolDefs.h"
+#include "mcp/tools/ToolHelpers.h"
 #include "mcp/tools/ToolRegistry.h"
 #include "server/AuthProvider.h"
 
 #include <drogon/HttpResponse.h>
 #include <simdjson.h>
 
+#include <algorithm>
+#include <atomic>
+#include <cstdlib>
+#include <condition_variable>
+#include <functional>
+#include <mutex>
+#include <queue>
+#include <thread>
+
 namespace voterpool::mcp {
 namespace {
 
 constexpr const char* kMetaAuthKey = "io.voterpool/auth";
 constexpr const char* kMetaClientInfoKey = "io.modelcontextprotocol/clientInfo";
+
+class DispatchPool {
+public:
+    static DispatchPool& get() {
+        static DispatchPool pool;
+        return pool;
+    }
+
+    void ensureStarted(std::size_t threads) {
+        std::call_once(started_, [this, threads] {
+            // Согласованный порядок завершения для ЛЮБОГО встраивания
+            // (сервер, тестовые бинари): хук зарегистрирован после
+            // конструирования -> исполняется раньше статического деструктора,
+            // поэтому cond_ уничтожается без живых ожидателей.
+            std::atexit([] { DispatchPool::get().quit(); });
+            std::size_t n = threads;
+            if (n == 0)
+                n = std::max<std::size_t>(4u, static_cast<std::size_t>(std::thread::hardware_concurrency()));
+            for (std::size_t i = 0; i < n; ++i) {
+                workers_.emplace_back([this] { run(); });
+            }
+        });
+    }
+
+    void post(std::function<void()> job) {
+        {
+            std::lock_guard lock(mutex_);
+            if (stopping_) return;  // постинг после остановки игнорируется
+            jobs_.push(std::move(job));
+        }
+        cv_.notify_one();
+    }
+
+    void requestStop() {
+        {
+            std::lock_guard lock(mutex_);
+            stopping_ = true;
+        }
+        cv_.notify_all();
+    }
+
+    // Полная остановка: дропает очередь и join'ит воркеров. Вызывается из
+    // graceful-shutdown приложения И из atexit-хука (безопасно дважды).
+    void quit() {
+        bool expected = false;
+        if (!quitting_.compare_exchange_strong(expected, true)) return;
+        requestStop();
+        for (auto& t : workers_) {
+            if (t.joinable()) t.join();
+        }
+        workers_.clear();
+    }
+
+private:
+    DispatchPool() = default;
+
+    void run() {
+        for (;;) {
+            std::function<void()> job;
+            {
+                std::unique_lock lock(mutex_);
+                cv_.wait(lock, [&] { return stopping_ || !jobs_.empty(); });
+                if (stopping_ && jobs_.empty()) return;
+                job = std::move(jobs_.front());
+                jobs_.pop();
+            }
+            try {
+                job();
+            } catch (...) {
+                // Ошибки инструментов уже перехвачены в dispatchTool; сбой
+                // самого постинга не должен гасить поток пула.
+            }
+        }
+    }
+
+    std::once_flag started_;
+    std::atomic<bool> quitting_{false};
+    std::vector<std::thread> workers_;
+    std::queue<std::function<void()>> jobs_;
+    std::mutex mutex_;
+    std::condition_variable cv_;
+    bool stopping_ = false;
+};
 
 const AgentContext* agentFromRequest(const drogon::HttpRequestPtr& req) {
     if (req->attributes()->find("agent_context")) {
@@ -179,6 +272,11 @@ Result<Json::Value> dispatchTool(AppContext& app, const AgentContext* agent, con
         if (!agent && !def.anonymous) {
             return Result<Json::Value>(RpcError::unauthorized());
         }
+        if (app.config.mcp.strict_arguments) {
+            if (auto violation = validateStrictArgs(name, args)) {
+                return Result<Json::Value>(std::move(*violation));
+            }
+        }
         ToolContext tc{app, agent};
         try {
             return def.handler(tc, args);
@@ -199,7 +297,7 @@ Json::Value discoverResponse(AppContext& app) {
     Json::Value out;
     out["resultType"] = "complete";
     out["supportedVersions"] = Json::Value(Json::arrayValue);
-    out["supportedVersions"].append(app.config.mcp.protocol_version);
+    for (const auto& v : app.config.mcp.supported_versions) out["supportedVersions"].append(v);
     out["capabilities"]["tools"] = Json::Value(Json::objectValue);
     Json::Value ext;
     ext["endpoint"] = "/mcp/events";
@@ -208,6 +306,39 @@ Json::Value discoverResponse(AppContext& app) {
     out["_meta"]["io.modelcontextprotocol/serverInfo"]["version"] = "1.0.0";
     out["ttlMs"] = 3600000;
     out["cacheScope"] = "public";
+    return out;
+}
+
+Json::Value initializeResponse(AppContext& app, const Json::Value& params) {
+    std::string requested;
+    if (params.isObject() && params.isMember("protocolVersion") &&
+        params["protocolVersion"].isString())
+        requested = params["protocolVersion"].asString();
+    const auto& supported = app.config.mcp.supported_versions;
+    std::string negotiated;
+    const bool known =
+        !requested.empty() &&
+        std::find(supported.begin(), supported.end(), requested) != supported.end();
+    if (known) {
+        negotiated = requested;
+    } else {
+        std::string bestBelow;
+        for (const auto& v : supported)
+            if (!requested.empty() && v < requested &&
+                (bestBelow.empty() || v > bestBelow))
+                bestBelow = v;
+        negotiated = !bestBelow.empty()
+                         ? bestBelow
+                         : *std::min_element(supported.begin(), supported.end());
+    }
+
+    Json::Value out;
+    out["protocolVersion"] = negotiated;
+    out["capabilities"]["tools"]["listChanged"] = false;
+    out["serverInfo"]["name"] = "voterpool";
+    out["serverInfo"]["version"] = "1.0.0";
+    for (const auto& v : supported)
+        out["_meta"]["io.voterpool/supportedVersions"].append(v);
     return out;
 }
 
@@ -240,7 +371,7 @@ MetaAuthStatus authenticateViaMeta(AppContext& app, const Json::Value& root, Age
         auth["bearer"].asString().empty()) {
         return MetaAuthStatus::Invalid;
     }
-    auto ctx = app.authProvider->validate(auth["bearer"].asString());
+    auto ctx = app.identity->resolveToken(auth["bearer"].asString());
     if (!ctx) return MetaAuthStatus::Invalid;
     out = *ctx;
     return MetaAuthStatus::Ok;
@@ -250,6 +381,8 @@ Result<Json::Value> dispatchToolForTests(AppContext& app, const AgentContext* ag
                                          const std::string& name, const Json::Value& args) {
     return dispatchToolForTestsImpl(app, agent, name, args);
 }
+
+void shutdownDispatchPool() { DispatchPool::get().quit(); }
 
 void handleMcpPost(AppContext& app, const drogon::HttpRequestPtr& req,
                    std::function<void(const drogon::HttpResponsePtr&)>& callback) {
@@ -272,6 +405,10 @@ void handleMcpPost(AppContext& app, const drogon::HttpRequestPtr& req,
 
     Json::Value root;
     try {
+        // Диагностика подключения: транспортные атрибуты каждого POST /mcp.
+        spdlog::info("POST /mcp enter ua=\"{}\" accept=\"{}\" bytes={}",
+                     req->getHeader("User-Agent").empty() ? "-" : req->getHeader("User-Agent"),
+                     req->getHeader("Accept").empty() ? "-" : req->getHeader("Accept"), body.size());
         simdjson::padded_string padded(body);
         simdjson::ondemand::parser parser;
         auto doc = parser.iterate(padded);
@@ -302,11 +439,18 @@ void handleMcpPost(AppContext& app, const drogon::HttpRequestPtr& req,
         callback(jsonResponse(errorBody(id, kErrInvalidRequest, "Invalid Request", Json::Value()), drogon::k200OK));
         return;
     }
-    const std::string method = root["method"].asString();
+    const std::string method = root.isObject() && root.isMember("method") && root["method"].isString()
+                                   ? root["method"].asString()
+                                   : std::string();
 
-    // Резервный канал авторизации: заголовок имеет приоритет; _meta читается
-    // только когда middleware не вставил контекст по заголовку. Невалидный
-    // _meta-токен отклоняется сразу (паритет с невалидным заголовком).
+    if (root.isObject() && !root.isMember("id")) {
+        recordRequestMetrics("notifications", "_notification", true, makeLogCtx(true, 0));
+        auto resp = drogon::HttpResponse::newHttpResponse();
+        resp->setStatusCode(drogon::k202Accepted);
+        callback(resp);
+        return;
+    }
+
     std::optional<AgentContext> metaCtx;
     if (!agent) {
         AgentContext resolved;
@@ -331,6 +475,16 @@ void handleMcpPost(AppContext& app, const drogon::HttpRequestPtr& req,
             std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count());
         return;
     }
+    if (method == "initialize") {
+        const Json::Value& params =
+            root.isMember("params") ? root["params"] : Json::Value(Json::objectValue);
+        recordRequestMetrics("initialize", "initialize", true, makeLogCtx(true, 0));
+        callback(jsonResponse(structuredResultBody(id, initializeResponse(app, params)), drogon::k200OK));
+        MetricsRegistry::instance().observe(
+            "voterpool_http_request_duration_seconds",
+            std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count());
+        return;
+    }
     if (method == "tools/list") {
         recordRequestMetrics(method, "tools/list", true, makeLogCtx(true, 0));
         callback(jsonResponse(structuredResultBody(id, toolsListResponse(app)), drogon::k200OK));
@@ -342,59 +496,77 @@ void handleMcpPost(AppContext& app, const drogon::HttpRequestPtr& req,
 
     const std::string headerName = req->getHeader("Mcp-Name");
 
-    if (method == "tools/call") {
+    if (method == "tools/call" || std::any_of(catalog().begin(), catalog().end(),
+                                              [&](const ToolDef& d) { return method == d.name; })) {
+        const bool modeA = method == "tools/call";
         const Json::Value& params = root.get("params", Json::Value(Json::objectValue));
-        if (!params.isObject() || !params.isMember("name") || !params["name"].isString()) {
+        const std::string toolName =
+            modeA ? (params.isMember("name") && params["name"].isString()
+                         ? params["name"].asString()
+                         : std::string())
+                  : method;
+        if (!modeA && (!root.isMember("params") || !root["params"].isObject())) {
+            recordErrorMetric(kErrInvalidRequest);
+            recordRequestMetrics("direct", toolName, false, makeLogCtx(false, kErrInvalidRequest));
+            callback(jsonResponse(errorBody(id, kErrInvalidRequest, "Invalid Request", Json::Value()), drogon::k200OK));
+            return;
+        }
+        if (toolName.empty()) {
             recordErrorMetric(kErrInvalidRequest);
             recordRequestMetrics(method, "_request", false, makeLogCtx(false, kErrInvalidRequest));
             callback(jsonResponse(errorBody(id, kErrInvalidRequest, "Invalid Request", Json::Value()), drogon::k200OK));
             return;
         }
-        const std::string toolName = params["name"].asString();
         if (!headerName.empty() && headerName != toolName) {
             recordErrorMetric(kErrInvalidRequest);
-            recordRequestMetrics(method, toolName, false, makeLogCtx(false, kErrInvalidRequest));
+            recordRequestMetrics(modeA ? method : "direct", toolName, false,
+                                 makeLogCtx(false, kErrInvalidRequest));
             callback(jsonResponse(errorBody(id, kErrInvalidRequest, "Invalid Request", Json::Value()), drogon::k200OK));
             return;
         }
-        Json::Value args = params.isMember("arguments") && params["arguments"].isObject()
-                               ? params["arguments"]
-                               : Json::Value(Json::objectValue);
-        auto result = dispatchTool(app, agent, toolName, args);
-        recordRequestMetrics(method, toolName, result.ok(),
-                             makeLogCtx(result.ok(), result.ok() ? 0 : result.error().code));
-        if (!result.ok()) {
-            callback(respondError(id, result.error()));
-        } else {
-            callback(respondResult(id, Codec::dump(result.value())));
+        Json::Value args = Json::Value(Json::objectValue);
+        if (modeA) {
+            if (params.isObject() && params.isMember("arguments") && params["arguments"].isObject())
+                args = params["arguments"];
+        } else if (params.isObject()) {
+            args = params;
         }
-    } else {
-        const bool known = std::any_of(catalog().begin(), catalog().end(),
-                                       [&](const ToolDef& d) { return method == d.name; });
-        if (!known) {
-            recordErrorMetric(kErrMethodNotFound);
-            recordRequestMetrics("direct", method, false, makeLogCtx(false, kErrMethodNotFound));
-            callback(jsonResponse(errorBody(id, kErrMethodNotFound, "Method not found", Json::Value()), drogon::k200OK));
-            return;
-        }
-        if (!headerName.empty() && headerName != method) {
-            recordErrorMetric(kErrInvalidRequest);
-            recordRequestMetrics("direct", method, false, makeLogCtx(false, kErrInvalidRequest));
-            callback(jsonResponse(errorBody(id, kErrInvalidRequest, "Invalid Request", Json::Value()), drogon::k200OK));
-            return;
-        }
-        Json::Value args = (root.isMember("params") && root["params"].isObject())
-                               ? root["params"]
-                               : Json::Value(Json::objectValue);
-        auto result = dispatchTool(app, agent, method, args);
-        recordRequestMetrics("direct", method, result.ok(),
-                             makeLogCtx(result.ok(), result.ok() ? 0 : result.error().code));
-        if (!result.ok()) {
-            callback(respondError(id, result.error()));
-        } else {
-            callback(respondResult(id, Codec::dump(result.value())));
-        }
+        const std::string requestIdCopy = requestId;
+        const std::string agentIdCopy = agent ? agent->agent_id : std::string();
+        const ClientMeta metaCopy = clientMeta;
+        const std::optional<AgentContext> ctxCopy =
+            agent ? std::optional<AgentContext>(*agent) : std::nullopt;
+        DispatchPool::get().ensureStarted(
+            app.config.mcp.worker_pool_size > 0
+                ? static_cast<std::size_t>(app.config.mcp.worker_pool_size)
+                : 0);
+        DispatchPool::get().post([=, &app]() {
+            auto t1 = std::chrono::steady_clock::now();
+            const AgentContext* ag = ctxCopy ? &*ctxCopy : nullptr;
+            auto result = dispatchTool(app, ag, toolName, args);
+            {
+                RequestLogContext c;
+                c.requestId = requestIdCopy;
+                c.agentId = agentIdCopy;
+                c.t0 = t1;
+                c.client = metaCopy;
+                recordRequestMetrics(modeA ? "tools/call" : "direct", toolName, result.ok(), c);
+            }
+            if (!result.ok()) {
+                callback(respondError(id, result.error()));
+            } else {
+                callback(respondResult(id, Codec::dump(result.value())));
+            }
+            MetricsRegistry::instance().observe(
+                "voterpool_http_request_duration_seconds",
+                std::chrono::duration<double>(std::chrono::steady_clock::now() - t1).count());
+        });
+        return;
     }
+
+    recordErrorMetric(kErrMethodNotFound);
+    recordRequestMetrics("direct", method, false, makeLogCtx(false, kErrMethodNotFound));
+    callback(jsonResponse(errorBody(id, kErrMethodNotFound, "Method not found", Json::Value()), drogon::k200OK));
 
     MetricsRegistry::instance().observe(
         "voterpool_http_request_duration_seconds",

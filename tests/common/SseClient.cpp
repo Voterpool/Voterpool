@@ -12,7 +12,8 @@
 
 namespace voterpool::testing {
 
-SseClient::SseClient(const std::string& host, int port, const std::string& token, int timeoutMs) {
+SseClient::SseClient(const std::string& host, int port, const std::string& token, int timeoutMs,
+                     const std::string& path) {
     fd_ = socket(AF_INET, SOCK_STREAM, 0);
     if (fd_ < 0) return;
     sockaddr_in addr{};
@@ -28,10 +29,10 @@ SseClient::SseClient(const std::string& host, int port, const std::string& token
         fd_ = -1;
         return;
     }
-    std::string req = "GET /mcp/events HTTP/1.1\r\n";
+    std::string req = "GET " + path + " HTTP/1.1\r\n";
     req += "Host: " + host + ":" + std::to_string(port) + "\r\n";
     req += "Accept: text/event-stream\r\n";
-    req += "Authorization: Bearer " + token + "\r\n";
+    if (!token.empty()) req += "Authorization: Bearer " + token + "\r\n";
     req += "\r\n";
     if (send(fd_, req.data(), req.size(), 0) < 0) {
         close(fd_);

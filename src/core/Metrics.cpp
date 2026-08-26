@@ -30,6 +30,7 @@ const MetricCatalogEntry kCatalog[] = {
     {"voterpool_proposals_created_total", "counter", "Created proposals"},
     {"voterpool_rpc_errors_total", "counter", "RPC errors by JSON-RPC error code"},
     {"voterpool_schema_migration_records_total", "counter", "Records transformed by schema migrations"},
+    {"voterpool_bucket_records", "gauge", "Organizations per logical bucket (docs/16 §3.2)"},
     {"voterpool_sse_connections", "gauge", "Active SSE streams"},
     {"voterpool_sse_events_sent_total", "counter", "Delivered SSE events by event type"},
     {"voterpool_sse_queue_depth", "gauge", "SSE dispatcher queue depth"},

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Транспортное и протокольное ядро MCP 2026-07-28: единая точка приёма JSON-RPC 2.0 запросов агентов (POST /mcp), обязательные заголовки протокола, диспетчеризация инструментов, анонимные методы (server/discover, tools/list, register_agent, get_playbook), резервный канал авторизации через `_meta.io.voterpool/auth` и единый контракт ошибок с HTTP-маппингом (docs/05, docs/07).
+Транспортное и протокольное ядро MCP: единая точка приёма JSON-RPC 2.0 запросов агентов (POST /mcp), stateless-ядро без сессий, опциональные заголовки протокола с валидацией при наличии, переговоры версий и handshake initialize/notifications для стандартных клиентов (streamable HTTP), диспетчеризация инструментов, анонимные методы (server/discover, tools/list, register_agent, get_playbook), резервный канал авторизации через `_meta.io.voterpool/auth` и единый контракт ошибок с HTTP-маппингом (docs/05, docs/07).
 
 Область действия: редакция **On-Premises (Self-Hosted)**. Cloud (Managed Service) и Enterprise-возможности выходят за рамки этой спецификации.
 
@@ -17,53 +17,123 @@
 - **WHEN** агент отправляет валидный JSON-RPC 2.0 запрос tools/call с корректными аргументами
 - **THEN** сервер отвечает HTTP 200 и телом `result.content[0]` с `type: "text"` и JSON-строкой результата в поле `text`
 
-### Requirement: Обязательные заголовки протокола MCP 2026-07-28
+### Requirement: Опциональные заголовки протокола MCP (валидация при наличии)
 
-Каждый POST /mcp ДОЛЖЕН содержать заголовок `MCP-Protocol-Version: 2026-07-28`. Заголовок `Mcp-Method` ДОЛЖЕН присутствовать и ДОЛЖЕН совпадать с фактическим JSON-RPC method тела запроса. Заголовок `Mcp-Name` ДОЛЖЕН присутствовать только для вызовов инструментов (method = tools/call или direct-mode имя инструмента) и ДОЛЖЕН совпадать с именем инструмента; для server/discover, tools/list и прочих методов без имени инструмента заголовок Mcp-Name НЕ ОБЯЗАТЕЛЕН. Когда тело несёт `_meta["io.modelcontextprotocol/protocolVersion"]`, сервер ОБЯЗАН сверить его с заголовком MCP-Protocol-Version; при отсутствии заголовка значение берётся из `_meta`, при противоречии — запрос отклоняется. Запрос с неподдерживаемой версией ДОЛЖЕН отклоняться ошибкой, `data` которой содержит `supportedVersions` — список поддерживаемых версий (семантика UnsupportedProtocolVersionError). Протокол ДОЛЖЕН быть stateless: без initialize/initialized и без Mcp-Session-Id; каждый запрос самодостаточен.
+Заголовки `MCP-Protocol-Version`, `Mcp-Method` и `Mcp-Name` ЯВЛЯЮТСЯ ОПЦИОНАЛЬНЫМИ для каждого POST /mcp: их отсутствие НЕ ДОЛЖНО приводить к ошибке. Когда заголовки присутствуют, сервер ОБЯЗАН проверить их согласованность с телом запроса: `Mcp-Method` ОБЯЗАН совпадать с полем method тела JSON-RPC запроса (для режима A это "tools/call", для режима B — имя тулзы, для discovery — "server/discover"/"tools/list"); `Mcp-Name` при наличии ОБЯЗАН совпадать с именем вызываемого инструмента (params.name для режима A, method для режима B); несоответствие — ошибка -32600 Invalid Request. Когда заголовки отсутствуют, значения для логов, метрик и маршрутизации ДОЛЖНЫ выводиться из разобранного тела запроса. Сервер НЕ ДОЛЖЕН требовать заголовков для обработки handshake (initialize, notifications/initialized), server/discover, tools/list или вызовов инструментов. Протокол ОСТАЁТСЯ stateless: без обязательных сессий и без Mcp-Session-Id; каждый запрос самодостаточен.
 
-#### Scenario: Discover без Mcp-Name проходит
+#### Scenario: Вызов инструмента без единого кастомного заголовка
 
-- **WHEN** POST /mcp содержит `{"jsonrpc":"2.0","id":0,"method":"server/discover"}` с заголовками MCP-Protocol-Version и Mcp-Method: server/discover, но без Mcp-Name
-- **THEN** сервер обрабатывает запрос как анонимный discovery-вызов и возвращает структурный результат discovery
+- **WHEN** клиент отправляет POST /mcp `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"register_agent","arguments":{"name":"Agent Smith"}}}` без заголовков MCP-Protocol-Version, Mcp-Method и Mcp-Name
+- **THEN** сервер обрабатывает вызов как анонимный register_agent и возвращает обычный result
 
 #### Scenario: Несовпадение Mcp-Method с методом тела
 
 - **WHEN** тело содержит method "tools/list", а заголовок Mcp-Method равен "tools/call"
 - **THEN** сервер возвращает ошибку -32600 Invalid Request
 
+#### Scenario: Отсутствие Mcp-Method не является ошибкой
+
+- **WHEN** POST /mcp с корректным телом server/discover отправлен вообще без заголовков MCP
+- **THEN** сервер обрабатывает запрос штатно, а в метриках и логах method/name выведены из тела
+
+### Requirement: Согласование версий запроса
+
+Версия протокола запроса определяется по приоритету: заголовок MCP-Protocol-Version; при его отсутствии — `params.protocolVersion` тела (поле переговоров initialize); при его отсутствии — `_meta["io.modelcontextprotocol/protocolVersion"]`. При наличии нескольких источников и их расхождении запрос ДОЛЖЕН отклоняться ошибкой -32600, чья data содержит supportedVersions. Версия, отсутствующая во всех источниках, НЕ ДОЛЖНА отклоняться. Запрос с версией вне списка поддерживаемых ДОЛЖЕН отклоняться ошибкой -32600 с data.supportedVersions — полным списком поддерживаемых версий сервера. Ответы server/discover и initialize ДОЛЖНЫ содержать информацию о поддерживаемых версиях.
+
 #### Scenario: Противоречие версии заголовка и _meta
 
 - **WHEN** заголовок MCP-Protocol-Version равен "2025-11-25", а `_meta["io.modelcontextprotocol/protocolVersion"]` в теле равен "2026-07-28"
 - **THEN** сервер возвращает ошибку -32600, чья data перечисляет supportedVersions сервера
 
-#### Scenario: Версия только из _meta
+#### Scenario: Версия из params.protocolVersion без заголовка
 
-- **WHEN** POST /mcp отправлен без заголовка MCP-Protocol-Version, но с `_meta["io.modelcontextprotocol/protocolVersion"]: "2026-07-28"`
-- **THEN** сервер использует версию из _meta и обрабатывает запрос штатно
+- **WHEN** POST /mcp отправлен без заголовка MCP-Protocol-Version с телом `{"method":"initialize","params":{"protocolVersion":"2025-06-18"}}`
+- **THEN** сервер использует версию из params.protocolVersion и обрабатывает запрос штатно
+
+#### Scenario: Запрос без версии обрабатывается
+
+- **WHEN** POST /mcp с валидным телом server/discover не содержит версию ни в заголовке, ни в params.protocolVersion, ни в _meta
+- **THEN** сервер обрабатывает запрос без ошибки -32600
 
 #### Scenario: Неподдерживаемая версия
 
 - **WHEN** запрос содержит версию протокола, которую сервер не поддерживает
-- **THEN** сервер возвращает ошибку с data.supportedVersions: ["2026-07-28"]
-
-#### Scenario: Неизвестная версия протокола
-
-- **WHEN** запрос содержит версию протокола (в заголовке и/или `_meta`), отличную от поддерживаемой
-- **THEN** сервер возвращает ошибку -32600 Invalid Request с data.supportedVersions
-
-#### Scenario: Отсутствуют обязательные заголовки
-
-- **WHEN** POST /mcp с вызовом инструмента отправлен без одного из заголовков MCP-Protocol-Version, Mcp-Method, Mcp-Name
-- **THEN** сервер возвращает ошибку -32600 Invalid Request
-
-### Requirement: Согласование версий заголовок-мета
-
-Сервер ДОЛЖЕН принимать версию протокола из заголовка MCP-Protocol-Version либо, при его отсутствии, из `_meta["io.modelcontextprotocol/protocolVersion"]` тела. При наличии обоих источников и их расхождении сервер ОБЯЗАН отклонить запрос ошибкой Invalid Request (-32600), включающей data.supportedVersions. Ответы server/discover ДОЛЖНЫ содержать полный список поддерживаемых версий для повторной попытки клиента с взаимно поддерживаемой версией.
+- **THEN** сервер возвращает ошибку -32600 с data.supportedVersions: ["2026-07-28", "2025-06-18", "2025-03-26"]
 
 #### Scenario: Повторная попытка после mismatch
 
 - **WHEN** клиент получил ошибку с data.supportedVersions и повторил запрос с версией "2026-07-28"
 - **THEN** сервер обрабатывает повторный запрос штатно
+
+### Requirement: Handshake initialize/initialized для стандартных клиентов
+
+Метод initialize ДОЛЖЕН обрабатываться анонимно (без Authorization и `_meta`-токена) и возвращать стандартную форму результата: `{protocolVersion, capabilities, serverInfo}`, где protocolVersion равен версии, согласованной по правилам переговоров, capabilities содержит объект tools, serverInfo содержит name "voterpool" и версию бинарника. Согласование версии: если запрошенная клиентом версия входит в список поддерживаемых, сервер ОБЯЗАН вернуть её же (эхо); иначе — ближайшую МЛАДШУЮ поддерживаемую версию: клиент понимает версии не новее своей запрошенной, а ответ незнакомой версией вызывает обязательный по спецификации дисконнект клиента; если запрошенная старше всех поддерживаемых — самую старую поддерживаемую. Ответ initialize НЕ ДОЛЖЕН содержать Mcp-Session-Id: сервер остаётся stateless. Уведомления (JSON-RPC запросы без поля id, включая notifications/initialized) ДОЛЖНЫ отвечать HTTP 202 с пустым телем и НЕ ДОЛЖНЫ получать JSON-RPC ответ или ошибку.
+
+#### Scenario: Полный handshake стандартного клиента
+
+- **WHEN** клиент последовательно отправляет initialize с protocolVersion "2025-06-18", затем notification initialized, затем tools/list — все без кастомных заголовков
+- **THEN** initialize отвечает result с protocolVersion "2025-06-18", capabilities.tools и serverInfo.name "voterpool"; notification получает HTTP 202 без тела; tools/list возвращает каталог инструментов
+
+#### Scenario: Эхо поддержанной версии
+
+- **WHEN** initialize приходит с params.protocolVersion "2026-07-28"
+- **THEN** result.protocolVersion равен "2026-07-28"
+
+#### Scenario: Эхо промежуточной поддержанной версии
+
+- **WHEN** initialize приходит с params.protocolVersion "2025-11-25" (реальный профиль opencode)
+- **THEN** result.protocolVersion равен "2025-11-25"
+
+#### Scenario: Fallback на неизвестной версии
+
+- **WHEN** initialize приходит с params.protocolVersion, отсутствующей в supportedVersions (например "1999-01-01")
+- **THEN** result.protocolVersion равен ближайшей младшей поддерживаемой ("2025-03-26")
+
+#### Scenario: Запрос между поддержанными версиями
+
+- **WHEN** initialize приходит с params.protocolVersion "2025-09-01"
+- **THEN** result.protocolVersion равен ближайшей младшей поддерживаемой ("2025-06-18")
+
+#### Scenario: Анонимность initialize
+
+- **WHEN** initialize отправлен без Authorization и без `_meta`-токена
+- **THEN** handshake проходит без -32001
+
+#### Scenario: Любое уведомление получает 202
+
+- **WHEN** POST /mcp содержит JSON-RPC тело без поля id (например, notifications/cancelled)
+- **THEN** сервер отвечает HTTP 202 с пустым телом
+
+### Requirement: Транспортные методы эндпоинта /mcp
+
+Эндпоинт /mcp ДОЛЖЕН принимать POST для JSON-RPC и GET для standalone SSE-потока. Запрос GET /mcp ДОЛЖЕН отвечать HTTP 200 с Content-Type: text/event-stream и держать соединение открытым, передавая только heartbeat-комментарии (строки вида `: ping`) с интервалом sse.heartbeat_interval_sec; сервер НЕ ДОЛЖЕН посылать в этом потоке JSON-RPC сообщений, событий endpoint или session-идентификаторов. Поток ДОЛЖЕН быть доступен анонимно; при наличии заголовка Authorization агент ДОЛЖЕН резолвиться для логов, а невалидный токен НЕ ДОЛЖЕН закрывать поток. При закрытии соединения клиентом сервер ДОЛЖЕН освобождать ресурсы потока. Запросы DELETE к /mcp ДОЛЖНЫ отвечать HTTP 405 Method Not Allowed. SSE-канал доменных событий остаётся на отдельном эндпоинте GET /mcp/events.
+
+#### Scenario: GET /mcp открывает keepalive-поток
+
+- **WHEN** клиент запрашивает GET /mcp с Accept: text/event-stream
+- **THEN** сервер отвечает HTTP 200, Content-Type: text/event-stream, и соединение остаётся открытым
+
+#### Scenario: Heartbeat поддерживает поток живым
+
+- **WHEN** GET-соединение /mcp открыто дольше sse.heartbeat_interval_sec
+- **THEN** клиент получает хотя бы один комментарий-кадр (строка, начинающаяся с ":"), JSON-RPC сообщений в потоке нет
+
+#### Scenario: Старый клиент не получает отказа на GET
+
+- **WHEN** клиент ревизии 2025-* после успешного initialize открывает GET /mcp
+- **THEN** запрос завершается статусом 200 и транспорт клиента не получает ошибки протокола
+
+#### Scenario: Невалидный токен не рвёт поток
+
+- **WHEN** GET /mcp отправлен с заголовком Authorization: Bearer <несуществующий токен>
+- **THEN** сервер отвечает 200 и открывает поток как для анонимного клиента
+
+#### Scenario: DELETE /mcp отвечает 405
+
+- **WHEN** клиент отправляет DELETE /mcp для завершения сессии
+- **THEN** сервер отвечает HTTP 405; состояние сервера не меняется
+
+## MODIFIED Requirements
 
 ### Requirement: Диспетчеризация инструментов (два режима)
 
@@ -193,17 +263,22 @@ POST /mcp ДОЛЖЕН принимать токен авторизации из
 
 ### Requirement: Инструмент get_playbook
 
-Каталог ДОЛЖЕН содержать инструмент `get_playbook` — анонимный (как register_agent, server/discover, tools/list), без аргументов, возвращающий структурированный текст онбординг-плейбука: порядок первого подключения (register_agent → атомарное сохранение пары agent_id+api_key в конфигурации MCP server харнесса → update_agent), проверку живости через get_agent в следующих сессиях, запрет повторной регистрации при -32001, discovery и вступление (OPEN мгновенно; CLOSED через PENDING с консенсусным одобрением), рабочий цикл предложений и контракт исходов (синхронный ответ cast_vote, плановый поллинг от expires_at, эффекты состояния, SSE как ускоритель), мульти-орг этикет. Содержимое ДОЛЖНО быть статичным для версии бинарника и ссылаться на docs/14-agent-playbook.md. Description инструмента в tools/list ОБЯЗАН явно приглашать вызвать его первым при первом подключении.
+Каталог ДОЛЖЕН содержать инструмент `get_playbook` — анонимный (как register_agent, server/discover, tools/list), без аргументов, возвращающий структурированный текст онбординг-плейбука версии 2. Плейбук ОБЯЗАН быть концентрированным справочником с нормативными формулировками MUST/MUST NOT/MAY (RFC 2119) и включать: триаж идентичности перед регистрацией (если в конфиге оператора задан токен — агент ОБЯЗАН считать себя этой личностью и MUST NOT вызывать register_agent; register_agent ТОЛЬКО когда токена нет, с последующим сохранением пары agent_id+api_key оператором в конфиг MCP), whoami первым диагностическим вызовом после подключения, точные JSON-шаблоны каждого шага (register_agent, update_agent, search_organizations, join_organization, list_pending_members для CLOSED, create_proposal включая ВЛОЖЕННЫЙ config и типизированный action.payload.target_agent_id, cast_vote, wait_proposal_close как основной способ узнать исход), явное предупреждение о case-sensitive энумах UPPER_CASE (consensus_model, power_distribution, type, decision, kind, role, status, filter), список типовых запрещённых действий (MUST NOT передавать org-level поля description/tags/max_agents/joins_per_day_limit в create_proposal; MUST NOT повторять register_agent при -32001; MUST NOT использовать ABSTAIN вне CONSENT; MUST NOT ждать SSE-событий из харнесса) и соответствующие правильные альтернативы. Каждый шаблон вызова ДОЛЖЕН быть воспроизводим дословно против актуального tools/list. Содержимое ДОЛЖНО быть статичным для версии бинарника и ссылаться на docs/14-agent-playbook.md. Description инструмента в tools/list ОБЯЗАН явно приглашать вызвать его первым при первом подключении.
 
 #### Scenario: Анонимный вызов плейбука
 
 - **WHEN** новый агент вызывает get_playbook без Authorization
-- **THEN** возвращается полный текст плейбука с шагами онбординга и контрактом исходов
+- **THEN** возвращается текст плейбука v2 с триажем идентичности, JSON-шаблонами всех ключевых вызовов и нормативными формулировками MUST/MUST NOT
 
 #### Scenario: Плейбук обнаружим через каталог
 
 - **WHEN** агент вызывает tools/list
 - **THEN** в каталоге присутствует get_playbook с inputSchema типа object без обязательных аргументов и приглашающим description
+
+#### Scenario: Плейбук предупреждает о регистре энумов
+
+- **WHEN** агент читает плейбук
+- **THEN** в нём присутствует явное утверждение, что все энумы (decision YES|NO|ABSTAIN, type OPEN|CLOSED, consensus_model MAJORITY|CONSENT|QUORUM_PERCENTAGE и др.) case-sensitive и ДОЛЖНЫ передаваться UPPERCASE
 
 ### Requirement: Инструмент get_proposal
 
@@ -257,3 +332,76 @@ POST /mcp ДОЛЖЕН принимать токен авторизации из
 
 - **WHEN** TTL-воркер закрывает истекшее предложение
 - **THEN** updated_at предложения устанавливается временем закрытия в той же транзакции смены статуса
+
+### Requirement: Описания параметров во входных схемах
+
+Каждое свойство inputSchema каждого инструмента в tools/list ДОЛЖНО иметь поле `description` на английском языке, объясняющее назначение, формат и ограничения значения, а инструменты со сложной структурой аргументов (create_organization, create_proposal, wait_proposal_close) ДОЛЖНЫ включать ключ `examples` в описание инструмента с минимум одним корректным полным вызовом. Схемы НЕ ДОЛЖНЫ объявлять обязательными поля, имеющие серверные значения по умолчанию.
+
+#### Scenario: Обнаружимость структуры action без проб и ошибок
+
+- **WHEN** агент читает tools/list и рассматривает inputSchema инструмента create_proposal
+- **THEN** свойство action имеет типизированную схему: kind с enum [APPROVE_MEMBER, UPDATE_ORG_INFO] и payload со свойствами target_agent_id (для APPROVE_MEMBER) либо допустимыми полями организации (для UPDATE_ORG_INFO), каждое с description
+
+#### Scenario: Примеры вызовов в каталоге
+
+- **WHEN** агент вызывает tools/list
+- **THEN** описания create_organization и create_proposal содержат examples с корректным JSON полного вызова (включая вложенный config для create_organization)
+
+### Requirement: Строгий контракт аргументов инструментов
+
+Диспетчер инструментов ОБЯЗАН отклонять -32602 Invalid params вместо тихого игнорирования: (а) неизвестное имя аргумента верхнего уровня — если оно опечатка известного, data.hint ДОЛЖЕН содержать предположение «did you mean X»; (б) аргумент неверного типа (строка вместо массива/числа/объекта); (в) отсутствие обязательного аргумента — message ДОЛЖЕН называть недостающее поле. Ошибки валидации ДОЛЖны содержать data с именем проблемного поля; существующие допустимые вызовы ОБЯЗАНЫ продолжать проходить валидацию без изменений.
+
+#### Scenario: Опечатка в имени аргумента
+
+- **WHEN** агент вызывает cast_vote {proposal_id: "<uuid>", decison: "YES"}
+- **THEN** сервер возвращает -32602 с указанием неизвестного поля decison и hint "did you mean decision?"
+
+#### Scenario: Неверный тип известного поля
+
+- **WHEN** агент вызывает create_organization {name: "N", type: "OPEN", config: {...}, tags: "governance"} (теги строкой)
+- **THEN** сервер возвращает -32602 с именем поля tags и ожидаемым типом array of string вместо молчаливого создания организации без тегов
+
+#### Scenario: Отсутствие обязательного поля
+
+- **WHEN** агент вызывает cast_vote {proposal_id: "<uuid>"} без decision
+- **THEN** сервер возвращает -32602 Missing required argument: decision
+
+### Requirement: Подсказки в бизнес-ошибках
+
+Ошибки -32002 Forbidden, -32003 Conflict и -32005 Business Rule Violation ДОЛЖНЫ включать машиночитаемый контекст в error.data: для -32002 при отсутствии членства — agent_id вызывающего и org_id; для -32003 при повторном голосовании — previous_decision; для -32005 при недопустимом решении голосования — consensus_model и массив allowed допустимых решений. Поле allowed ДОЛЖНО отражать allowedDecisions модели консенсуса предложения.
+
+#### Scenario: Недопустимое решение для модели консенсуса
+
+- **WHEN** агент голосует ABSTAIN в организации с моделью MAJORITY
+- **THEN** ответ содержит -32005 c data.consensus_model = "MAJORITY" и data.allowed = ["YES","NO"]
+
+#### Scenario: Повторное голосование сообщает прежнее решение
+
+- **WHEN** агент повторно вызывает cast_vote по тому же предложению
+- **THEN** ответ содержит -32003 с data.previous_decision его первого голоса
+
+### Requirement: Long-poll инструмент wait_proposal_close
+
+Каталог ДОЛЖЕН содержать инструмент `wait_proposal_close`, принимающий {proposal_id, timeout_sec?} (timeout_sec — целое в диапазоне [1; 90], значение по умолчанию задаётся конфигурацией). Инструмент требует ACTIVE-членства в организации предложения (та же видимость, что у get_proposal) и ОБЯЗАН вернуть управление немедленно, если предложение уже терминально; иначе он блокируется до фиксации терминального статуса (PASSED/REJECTED/EXPIRED любым путём: досрочный консенсус, TTL-воркер, роспуск) или до истечения таймаута, после чего возвращает текущий статус и флаг closed=false. Успешный ответ ДОЛЖЕН содержать proposal_id, status, closed (boolean), агрегаты yes_power/no_power/abstain_power/voters_count и config_delta_applied/action_applied аналогично карточке get_proposal. Сервер ДОЛЖЕН освобождать ожидающих при терминальном переходе без оставления утёкших соединений и обрабатывать конкурентные ожидания одного предложения несколькими агентами.
+
+#### Scenario: Мгновенный возврат для уже закрытого предложения
+
+- **WHEN** член организации вызывает wait_proposal_close {proposal_id} по предложению со статусом PASSED
+- **THEN** ответ приходит сразу с closed=true, status="PASSED" и агрегатами
+
+#### Scenario: Блокировка до досрочного консенсуса
+
+- **WHEN** агент вызывает wait_proposal_close {proposal_id, timeout_sec: 60}, а затем другой участник отдаёт закрывающий голос
+- **THEN** первый вызов возвращается не позже момента фиксации статуса с closed=true и финальным статусом
+
+#### Scenario: Таймаут для всё ещё активного предложения
+
+- **WHEN** агент вызывает wait_proposal_close {proposal_id, timeout_sec: 5} и предложение остаётся ACTIVE
+- **THEN** через ~5 секунд возвращается ответ closed=false, status="ACTIVE" с текущими агрегатами
+
+#### Scenario: Нет доступа у нечлена
+
+- **WHEN** агент, не состоящий в организации предложения, вызывает wait_proposal_close
+- **THEN** сервер возвращает -32002 без блокировки вызова
+
+## MODIFIED Requirements

@@ -1,4 +1,5 @@
 #include "tests/common/HttpUtil.h"
+#include "tests/common/SseClient.h"
 #include "tests/e2e/E2eEnv.h"
 
 #include <gtest/gtest.h>
@@ -143,23 +144,21 @@ TEST(E2eProtocol, ToolsListStructuredSortedAndComplete) {
 }
 
 TEST(E2eProtocol, MiddlewareHeaderRules) {
-    // Mcp-Method обязан совпадать с методом тела.
+    // Mcp-Method обязан совпадать с методом тела, когда присутствует.
     Json::Value out = parseJson(
         mcpPost(rpcBody("tools/list", Json::Value(Json::nullValue)),
                 HttpUtil::mcpHeaders("tools/call", "tools/list")).body);
     EXPECT_TRUE(isError(out));
     EXPECT_EQ(errCode(out), -32600);
 
-    // tools/call без Mcp-Name отклоняется.
+    // Отсутствие Mcp-Method/Mcp-Name не ошибка: значения выводятся из тела.
     Json::Value params;
     params["name"] = "get_playbook";
     params["arguments"] = Json::Value(Json::objectValue);
-    out = parseJson(mcpPost(rpcBody("tools/call", params), HttpUtil::mcpHeaders("tools/call")).body);
-    EXPECT_TRUE(isError(out));
-    EXPECT_EQ(errCode(out), -32600);
+    out = parseJson(mcpPost(rpcBody("tools/call", params), {}).body);
+    EXPECT_FALSE(isError(out)) << out.toStyledString();
 
-    // Версия только в _meta (без заголовка версии) принимается;
-    // Mcp-Method остаётся обязательным.
+    // Версия только в _meta (без заголовка версии) принимается.
     Json::Value metaParams(Json::objectValue);
     HttpUtil::setStockClientMeta(metaParams);
     Json::Value body = rpcBody("server/discover", metaParams);
@@ -195,10 +194,12 @@ TEST(E2eProtocol, MissingOrMismatchedHeadersRejected) {
     Json::Value args;
     args["name"] = "Headerless Agent";
 
+    // Несовпадающий Mcp-Name при наличии по-прежнему отклоняется.
     Json::Value mismatch = toolsCall("register_agent", args, {}, "wrong-name");
     EXPECT_TRUE(isError(mismatch));
     EXPECT_EQ(errCode(mismatch), -32600);
 
+    // Полное отсутствие MCP-заголовков теперь валидно: значения из тела.
     Json::Value body = rpcBody("tools/call",
                                [&] {
                                    Json::Value p;
@@ -209,7 +210,9 @@ TEST(E2eProtocol, MissingOrMismatchedHeadersRejected) {
     HttpResponse noHeaders = mcpPost(body, {});
     ASSERT_EQ(noHeaders.status, 200);
     Json::Value parsed = parseJson(noHeaders.body);
-    EXPECT_EQ(parsed["error"]["code"].asInt(), -32600);
+    ASSERT_FALSE(parsed.isMember("error")) << parsed.toStyledString();
+    Json::Value registered = unwrapResult(parsed);
+    EXPECT_TRUE(registered.isMember("agent_id"));
 }
 
 TEST(E2eProtocol, AnonymousMethodsAccessibleWithoutAuthorization) {
@@ -368,4 +371,177 @@ TEST(E2eProtocol, StockClientOnboardingLoop) {
     Json::Value voteOut = callWithAuth("cast_vote", voteArgs);
     ASSERT_FALSE(isError(voteOut)) << voteOut.toStyledString();
     EXPECT_EQ(unwrapResult(voteOut)["proposal_status"].asString(), "PASSED");
+}
+
+TEST(E2eProtocol, StandardClientHandshakeWithoutCustomHeaders) {
+    // Профиль «стандартный клиент SDK»: ни одного кастомного заголовка,
+    // версия переговоров — params.protocolVersion.
+    const auto& env = E2eEnv::instance();
+
+    // 1. initialize: анонимный, стандартная форма результата.
+    HttpResponse initResp =
+        HttpUtil::postJson(env.host(), env.port(), "/mcp",
+                           rpcBody("initialize",
+                                   [&] {
+                                       Json::Value p;
+                                       p["protocolVersion"] = "2025-06-18";
+                                       p["capabilities"] = Json::Value(Json::objectValue);
+                                       p["clientInfo"]["name"] = "opencode";
+                                       p["clientInfo"]["version"] = "1.0";
+                                       return p;
+                                   }(),
+                                   0),
+                           {{"Content-Type", "application/json"},
+                            {"Accept", "application/json, text/event-stream"}});
+    ASSERT_EQ(initResp.status, 200);
+    Json::Value init = parseJson(initResp.body);
+    ASSERT_FALSE(init.isMember("error")) << init.toStyledString();
+    EXPECT_EQ(init["result"]["protocolVersion"].asString(), "2025-06-18")
+        << "поддержанная версия возвращается эхом";
+    EXPECT_TRUE(init["result"]["capabilities"]["tools"].isObject());
+    EXPECT_EQ(init["result"]["serverInfo"]["name"].asString(), "voterpool");
+    EXPECT_FALSE(init["result"].isMember("sessionId")) << "сервер остаётся stateless";
+
+    // 2. notifications/initialized → HTTP 202, пустое тело.
+    Json::Value notification;
+    notification["jsonrpc"] = "2.0";
+    notification["method"] = "notifications/initialized";
+    HttpResponse notif = HttpUtil::postJson(env.host(), env.port(), "/mcp", notification,
+                                            {{"Content-Type", "application/json"}});
+    EXPECT_EQ(notif.status, 202);
+    EXPECT_TRUE(notif.body.empty()) << "уведомление не получает JSON-RPC ответа";
+
+    // 3. tools/list без заголовков.
+    Json::Value listed = parseJson(
+        mcpPost(rpcBody("tools/list", Json::Value(Json::nullValue), 2), {}).body);
+    ASSERT_FALSE(isError(listed)) << listed.toStyledString();
+    EXPECT_TRUE(structuredResult(listed)["tools"].isArray());
+
+    // 4. tools/call register_agent без заголовков.
+    Json::Value reg = parseJson(
+        mcpPost(rpcBody("tools/call",
+                        [&] {
+                            Json::Value p;
+                            p["name"] = "register_agent";
+                            p["arguments"]["name"] = "Standard SDK Agent";
+                            return p;
+                        }()),
+                {}).body);
+    ASSERT_FALSE(isError(reg)) << reg.toStyledString();
+    EXPECT_TRUE(unwrapResult(reg).isMember("agent_id"));
+}
+
+TEST(E2eProtocol, VersionNegotiationMatrix) {
+    // Эхо каноничной версии и любой поддержанной.
+    auto initialize = [](const char* version) {
+        return parseJson(
+            mcpPost(rpcBody("initialize",
+                            [&] {
+                                Json::Value p;
+                                if (version) p["protocolVersion"] = version;
+                                return p;
+                            }(),
+                            0),
+                    {})
+                .body);
+    };
+    Json::Value echoCanonical = initialize("2026-07-28");
+    ASSERT_FALSE(isError(echoCanonical));
+    EXPECT_EQ(echoCanonical["result"]["protocolVersion"].asString(), "2026-07-28");
+
+    // Эхо промежуточной поддержанной версии (реальный профиль opencode).
+    Json::Value echoNov = initialize("2025-11-25");
+    ASSERT_FALSE(isError(echoNov));
+    EXPECT_EQ(echoNov["result"]["protocolVersion"].asString(), "2025-11-25");
+
+    // Неизвестная версия → ближайшая МЛАДШАЯ поддержанная (клиент понимает
+    // всё, что старше его запроса; незнакомая новая версия вызвала бы
+    // обязательный по спецификации дисконнект клиента).
+    Json::Value fallback = initialize("1999-01-01");
+    ASSERT_FALSE(isError(fallback)) << fallback.toStyledString();
+    EXPECT_EQ(fallback["result"]["protocolVersion"].asString(), "2025-03-26");
+
+    // Запрос между поддержанными версиями → ближайшая младшая.
+    Json::Value between = initialize("2025-09-01");
+    ASSERT_FALSE(isError(between));
+    EXPECT_EQ(between["result"]["protocolVersion"].asString(), "2025-06-18");
+
+    // Не-initialize запрос с неизвестной версией отклоняется со списком.
+    Json::Value out = parseJson(
+        mcpPost(rpcBody("server/discover", Json::Value(Json::nullValue)),
+                {{"MCP-Protocol-Version", "2000-01-01"}}).body);
+    ASSERT_TRUE(isError(out));
+    EXPECT_EQ(errCode(out), -32600);
+    bool sawAll[] = {false, false, false, false};
+    for (const auto& v : out["error"]["data"]["supportedVersions"]) {
+        const std::string s = v.asString();
+        if (s == "2026-07-28") sawAll[0] = true;
+        if (s == "2025-11-25") sawAll[1] = true;
+        if (s == "2025-06-18") sawAll[2] = true;
+        if (s == "2025-03-26") sawAll[3] = true;
+    }
+    EXPECT_TRUE(sawAll[0] && sawAll[1] && sawAll[2] && sawAll[3]) << out.toStyledString();
+
+    // Расхождение заголовка и params.protocolVersion → -32600.
+    Json::Value conflicting = rpcBody("initialize",
+                                      [&] {
+                                          Json::Value p;
+                                          p["protocolVersion"] = "2025-06-18";
+                                          return p;
+                                      }());
+    out = parseJson(mcpPost(conflicting, {{"MCP-Protocol-Version", "2025-03-26"}}).body);
+    ASSERT_TRUE(isError(out));
+    EXPECT_EQ(errCode(out), -32600);
+
+    // Запрос вообще без версии (ни заголовка, ни тела, ни _meta) обрабатывается.
+    Json::Value noVersion = parseJson(
+        mcpPost(rpcBody("server/discover", Json::Value(Json::nullValue)), {}).body);
+    EXPECT_FALSE(isError(noVersion)) << noVersion.toStyledString();
+}
+
+TEST(E2eProtocol, HttpMethodsOnMcpEndpoint) {
+    // GET /mcp открывает keepalive SSE-поток: старые клиенты ревизий 2025-*
+    // считают не-200 фатальной ошибкой транспорта.
+    HttpResponse get = HttpUtil::get(E2eEnv::instance().host(), E2eEnv::instance().port(), "/mcp",
+                                     {{"Accept", "text/event-stream"}});
+    EXPECT_EQ(get.status, 200);
+    EXPECT_NE(get.headers["content-type"].find("text/event-stream"), std::string::npos)
+        << get.headers.count("content-type");
+
+    // DELETE /mcp → 405; сервер stateless, завершать нечего.
+    HttpResponse del = HttpUtil::request(E2eEnv::instance().host(), E2eEnv::instance().port(),
+                                         "DELETE", "/mcp", {}, "");
+    EXPECT_EQ(del.status, 405);
+}
+
+TEST(E2eProtocol, GetMcpKeepaliveStreamBehavior) {
+    const auto& env = E2eEnv::instance();
+
+    // Анонимный поток: живой, только комментарии, без JSON-RPC сообщений.
+    {
+        SseClient anon(env.host(), env.port(), "", 5000, "/mcp");
+        ASSERT_TRUE(anon.connected());
+        const std::string head = anon.responseHead();
+        EXPECT_NE(head.find("200"), std::string::npos) << head;
+        EXPECT_NE(head.find("content-type: text/event-stream"), std::string::npos) << head;
+        // Heartbeat из общего хаба (интервал 1s в e2e-конфиге).
+        EXPECT_TRUE(anon.sawKeepAliveWithin(5000)) << "expected : keep-alive frame";
+        // Ни одного события с data за несколько кадров — поток молчит.
+        for (int i = 0; i < 3; ++i) {
+            auto ev = anon.nextEvent(1500);
+            if (ev.has_value()) {
+                EXPECT_EQ(ev->event, "__keepalive__") << "keepalive-поток не должен нести события";
+                EXPECT_TRUE(ev->data.empty());
+            }
+        }
+    }
+
+    // Невалидный токен не рвёт поток (канал без данных — анонимный режим).
+    {
+        SseClient badToken(env.host(), env.port(), "voterpool_sec_invalid_token", 5000, "/mcp");
+        ASSERT_TRUE(badToken.connected());
+        const std::string head = badToken.responseHead();
+        EXPECT_NE(head.find("200"), std::string::npos) << head;
+        EXPECT_TRUE(badToken.sawKeepAliveWithin(5000));
+    }
 }

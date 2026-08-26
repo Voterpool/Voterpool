@@ -1,5 +1,5 @@
-# Voterpool observability stack — мода B (всё в контейнерах).
-# Мода A (бинарник на хосте): docker compose -f docker-compose.yml -f docker-compose.hostmode.yaml up -d
+# Voterpool observability stack — вариант 2 (всё в контейнерах).
+# Вариант 1 (бинарник на хосте): docker compose -f docker-compose.yml -f docker-compose.hostmode.yaml up -d
 name: voterpool-obs
 
 services:
@@ -33,7 +33,7 @@ services:
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./prometheus/alerts:/etc/prometheus/alerts:ro
-      # Мода B; в hostmode-override этот маунт заменяется на voterpool-hostmode.yml
+      # Вариант 2; в hostmode-override этот маунт заменяется на voterpool-hostmode.yml
       - ./prometheus/scrape.d/voterpool-bundled.yml:/etc/prometheus/scrape.d/voterpool.yml:ro
       - prom_data:/prometheus
     ports:
