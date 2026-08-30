@@ -179,17 +179,17 @@
 - **THEN** плейбук возвращается без ошибки авторизации
 ### Requirement: Кэшируемый каталог tools/list
 
-Метод tools/list ДОЛЖЕН возвращать структурный результат верхнего уровня с полем resultType "complete" (без обёртки content), содержащий JSON-схемы всех инструментов в массиве tools, а также ttlMs и cacheScope: "server", в детерминированном лексикографическом порядке по имени инструмента. Каждый инструмент в каталоге ОБЯЗАН иметь description и валидную inputSchema (JSON Schema draft 2020-12): inputSchema ДОЛЖЕН быть объектом с type "object"; каждое значение в properties ДОЛЖНО быть объектом-схемой с полем type из множества string|number|integer|boolean|array; массив required ДОЛЖЕН быть подмножеством имён properties. Значение ttlMs ДОЛЖНО быть конфигурируемым (по умолчанию 300000 мс). Поле decision в схеме cast_vote ДОЛЖНО быть enum всех теоретических вариантов (YES, NO, ABSTAIN); фактическая валидация выполняется по модели консенсуса организации.
+Метод tools/list ДОЛЖЕН возвращать структурный результат верхнего уровня с полем resultType "complete" (без обёртки content), содержащий JSON-схемы всех инструментов в массиве tools, а также ttlMs и cacheScope: "private", в детерминированном лексикографическом порядке по имени инструмента. Каждый инструмент в каталоге ОБЯЗАН иметь description и валидную inputSchema (JSON Schema draft 2020-12): inputSchema ДОЛЖЕН быть объектом с type "object"; каждое значение в properties ДОЛЖНО быть объектом-схемой с полем type из множества string|number|integer|boolean|array; массив required ДОЛЖЕН быть подмножеством имён properties. Значение ttlMs ДОЛЖНО быть конфигурируемым (по умолчанию 300000 мс). Поле decision в схеме cast_vote ДОЛЖНО быть enum всех теоретических вариантов (YES, NO, ABSTAIN); фактическая валидация выполняется по модели консенсуса организации.
 
 #### Scenario: Структурный каталог с resultType complete
 
 - **WHEN** клиент вызывает tools/list
-- **THEN** result содержит resultType "complete", массив tools на верхнем уровне результата (без content-обёртки), ttlMs и cacheScope: "server"
+- **THEN** result содержит resultType "complete", массив tools на верхнем уровне результата (без content-обёртки), ttlMs и cacheScope: "private"
 
 #### Scenario: Детерминированный каталог
 
 - **WHEN** агент дважды вызывает tools/list
-- **THEN** оба ответа содержат одинаковый набор инструментов, отсортированный лексикографически по имени, с ttlMs и cacheScope: "server"
+- **THEN** оба ответа содержат одинаковый набор инструментов, отсортированный лексикографически по имени, с ttlMs и cacheScope: "private"
 
 #### Scenario: Полные схемы инструментов
 

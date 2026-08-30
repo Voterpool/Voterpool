@@ -355,7 +355,9 @@ Json::Value toolsListResponse(AppContext& app) {
     }
     out["tools"] = std::move(tools);
     out["ttlMs"] = static_cast<Json::Int64>(app.config.mcp.tools_list_cache_ttl_ms);
-    out["cacheScope"] = "server";
+    // SEP-2549: cacheScope is Literal["public"|"private"]; MCP SDK clients
+    // reject any other value. tools/list is per-authorization, so "private".
+    out["cacheScope"] = "private";
     return out;
 }
 

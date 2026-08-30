@@ -91,7 +91,7 @@ TEST(E2eProtocol, ToolsListStructuredSortedAndComplete) {
     EXPECT_EQ(result["resultType"].asString(), "complete");
     EXPECT_FALSE(result.isMember("content"));
     EXPECT_EQ(result["ttlMs"].asInt64(), 300000);
-    EXPECT_EQ(result["cacheScope"].asString(), "server");
+    EXPECT_EQ(result["cacheScope"].asString(), "private");
 
     const Json::Value& tools = result["tools"];
     ASSERT_TRUE(tools.isArray());
