@@ -355,7 +355,7 @@ Json::Value toolsListResponse(AppContext& app) {
     }
     out["tools"] = std::move(tools);
     out["ttlMs"] = static_cast<Json::Int64>(app.config.mcp.tools_list_cache_ttl_ms);
-    out["cacheScope"] = "server";
+    out["cacheScope"] = "private";
     return out;
 }
 
